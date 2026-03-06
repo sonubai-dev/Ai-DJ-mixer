@@ -1,0 +1,62 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "A user profile",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "displayName": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email"]
+    },
+    "Mix": {
+      "title": "Mix",
+      "description": "A saved DJ mix configuration",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "name": { "type": "string" },
+        "mode": { "type": "string", "enum": ["dj", "slowed", "mashup"] },
+        "settings": {
+          "type": "object",
+          "properties": {
+            "bassBoost": { "type": "number" },
+            "echoDelay": { "type": "number" },
+            "echoFeedback": { "type": "number" },
+            "slowFactor": { "type": "number" },
+            "reverbWet": { "type": "number" },
+            "reverbSize": { "type": "number" },
+            "crossfadeDuration": { "type": "number" }
+          }
+        },
+        "tracks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": { "type": "string" },
+              "language": { "type": "string" }
+            }
+          }
+        },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "name", "mode", "settings", "createdAt"]
+    }
+  },
+  "firestore": {
+    "users/{userId}": {
+      "schema": "User",
+      "description": "User profiles"
+    },
+    "mixes/{mixId}": {
+      "schema": "Mix",
+      "description": "Saved mixes"
+    }
+  }
+}

@@ -1,0 +1,66 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isDocOwner() {
+      return isAuthenticated() && (request.auth.uid == resource.data.userId || request.auth.uid == resource.data.uid);
+    }
+    
+    // Check if the user ID in the document matches the authenticated user
+    function isUser(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // Validate required fields exist
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+    
+    // Validate string length
+    function validStringLength(field, minLen, maxLen) {
+      return request.resource.data[field] is string &&
+        request.resource.data[field].size() >= minLen &&
+        request.resource.data[field].size() <= maxLen;
+    }
+
+    // ===============================================================
+    // Collection Rules
+    // ===============================================================
+
+    match /users/{userId} {
+      allow read: if isAuthenticated(); // Users can read other profiles (e.g. for collaboration features later)
+      allow create: if isUser(userId) && 
+                    hasRequiredFields(['uid', 'email']) &&
+                    request.resource.data.uid == userId &&
+                    validStringLength('email', 5, 100);
+      allow update: if isUser(userId) && 
+                    request.resource.data.uid == userId; // UID cannot change
+      allow delete: if isUser(userId);
+    }
+
+    match /mixes/{mixId} {
+      allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid); // Private mixes for now
+      allow create: if isAuthenticated() && 
+                    hasRequiredFields(['userId', 'name', 'mode', 'settings', 'createdAt']) &&
+                    request.resource.data.userId == request.auth.uid &&
+                    validStringLength('name', 1, 100) &&
+                    request.resource.data.mode in ['dj', 'slowed', 'mashup'];
+      allow update: if isAuthenticated() && 
+                    resource.data.userId == request.auth.uid &&
+                    request.resource.data.userId == request.auth.uid; // Ownership cannot change
+      allow delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
+    }
+  }
+}
