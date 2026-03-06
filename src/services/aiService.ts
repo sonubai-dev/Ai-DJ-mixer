@@ -102,42 +102,81 @@ export async function guessBPMFromMetadata(filename: string): Promise<number | n
   }
 }
 
-export async function transcribeAudio(audioBlob: Blob): Promise<string> {
-  if (!apiKey) return "API Key missing";
+export async function generateMashupPlan(
+  currentTracks: { name: string; language?: string }[],
+  userInstruction: string
+): Promise<{
+  recommendedSongs: string[];
+  settings: RemixSettings;
+  responseMessage: string;
+}> {
+  if (!apiKey) {
+    return {
+      recommendedSongs: [],
+      settings: {
+        bassBoost: 0,
+        echoDelay: 0,
+        echoFeedback: 0,
+        slowFactor: 100,
+        reverbWet: 0,
+        reverbSize: 0,
+        crossfadeDuration: 2
+      },
+      responseMessage: "API Key is missing. I cannot generate a plan."
+    };
+  }
 
   try {
-    // Convert Blob to Base64
-    const reader = new FileReader();
-    const base64Promise = new Promise<string>((resolve, reject) => {
-      reader.onloadend = () => {
-        const base64 = (reader.result as string).split(',')[1];
-        resolve(base64);
-      };
-      reader.onerror = reject;
-    });
-    reader.readAsDataURL(audioBlob);
-    const base64Data = await base64Promise;
+    const prompt = `
+      Act as a professional DJ and Music Curator.
+      
+      Current Playlist: ${JSON.stringify(currentTracks)}
+      User Instructions: "${userInstruction}"
+      
+      Task:
+      1. Analyze the current playlist and user instructions.
+      2. Recommend 3-5 songs that would mix perfectly with the current tracks to create a seamless mashup/jukebox.
+      3. Determine the best remix settings (speed, reverb, bass) based on the user's request (e.g., "slowed and reverb", "high energy").
+      4. Provide a friendly, DJ-like response message explaining your choices.
+      
+      Output JSON format:
+      {
+        "recommendedSongs": ["Song Name - Artist", "Song Name - Artist"],
+        "settings": {
+          "bassBoost": number (0-20),
+          "echoDelay": number (0-1000),
+          "echoFeedback": number (0-100),
+          "slowFactor": number (50-150, where 100 is normal speed, <100 is slowed),
+          "reverbWet": number (0-100),
+          "reverbSize": number (0-10),
+          "crossfadeDuration": number (0-10)
+        },
+        "responseMessage": "Your message here..."
+      }
+      Do not include markdown formatting. Just the JSON string.
+    `;
 
     const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
-      contents: {
-        parts: [
-          {
-            inlineData: {
-              mimeType: audioBlob.type || "audio/wav",
-              data: base64Data
-            }
-          },
-          {
-            text: "Transcribe this audio. If it's a song, write down the lyrics. If it's speech, transcribe the speech."
-          }
-        ]
-      }
+      model: "gemini-3.1-flash-lite-preview",
+      contents: prompt,
     });
 
-    return response.text?.trim() || "Transcription failed";
+    const text = response.text?.trim().replace(/```json|```/g, '') || "{}";
+    return JSON.parse(text);
   } catch (error) {
-    console.error("AI Transcription Error:", error);
-    return "Error transcribing audio";
+    console.error('Error generating mashup plan:', error);
+    return {
+      recommendedSongs: [],
+      settings: {
+        bassBoost: 0,
+        echoDelay: 0,
+        echoFeedback: 0,
+        slowFactor: 100,
+        reverbWet: 0,
+        reverbSize: 0,
+        crossfadeDuration: 2
+      },
+      responseMessage: "Sorry, I couldn't generate a plan right now."
+    };
   }
 }

@@ -6,6 +6,7 @@ export interface AudioTrack {
   language?: string;
   buffer?: AudioBuffer;
   bpm?: number;
+  status?: 'uploaded' | 'searching' | 'ready' | 'error';
 }
 
 export interface RemixSettings {

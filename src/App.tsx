@@ -6,15 +6,23 @@ import { SettingsPanel } from './components/SettingsPanel';
 import { Visualizer } from './components/Visualizer';
 import { AuthButton } from './components/AuthButton';
 import { PresetList, MixPreset } from './components/PresetList';
+import { MashupChat } from './components/MashupChat';
 import { useAudioProcessor } from './hooks/useAudioProcessor';
 import { AudioTrack, RemixMode, RemixSettings } from './types';
 import { audioBufferToWav } from './utils/encodeWAV';
 import { detectBPM } from './utils/bpmDetection';
-import { generateDJTitle, transcribeAudio, guessBPMFromMetadata, getTrendBasedRemixSettings } from './services/aiService';
-import { Play, Pause, Download, Wand2, Loader2, FileText, Save, Sparkles } from 'lucide-react';
+import { generateDJTitle, guessBPMFromMetadata, getTrendBasedRemixSettings, generateMashupPlan } from './services/aiService';
+import { Play, Pause, Download, Wand2, Loader2, Save, Sparkles, MessageSquare } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { db, auth } from './firebase';
 import { collection, addDoc } from 'firebase/firestore';
+
+interface ChatMessage {
+  id: string;
+  role: 'user' | 'ai';
+  text: string;
+  timestamp: Date;
+}
 
 function App() {
   const [tracks, setTracks] = useState<AudioTrack[]>([]);
@@ -32,62 +40,126 @@ function App() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [generatedTitle, setGeneratedTitle] = useState('');
   const [isGeneratingTitle, setIsGeneratingTitle] = useState(false);
-  const [transcription, setTranscription] = useState('');
-  const [isTranscribing, setIsTranscribing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isAnalyzingTrends, setIsAnalyzingTrends] = useState(false);
   const [detectingBPMId, setDetectingBPMId] = useState<string | null>(null);
   
+  // Chat State
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [isChatProcessing, setIsChatProcessing] = useState(false);
+
   const { processAudio, isProcessing, processedBuffer, audioContext, decodeAudio } = useAudioProcessor();
   const sourceNodeRef = useRef<AudioBufferSourceNode | null>(null);
   const startTimeRef = useRef<number>(0);
   const pauseTimeRef = useRef<number>(0);
 
   const handleFileUpload = async (files: File[]) => {
-    const newTracks = files.map((file) => ({
-      id: Math.random().toString(36).substr(2, 9),
-      file,
-      name: file.name,
-      duration: 0, 
+    const newTracks = await Promise.all(files.map(async (file) => {
+      let duration = 0;
+      try {
+        const audio = new Audio(URL.createObjectURL(file));
+        await new Promise((resolve) => {
+          audio.onloadedmetadata = () => {
+            duration = audio.duration;
+            resolve(null);
+          };
+          audio.onerror = () => resolve(null);
+        });
+      } catch (e) {
+        console.error("Error getting duration", e);
+      }
+
+      return {
+        id: Math.random().toString(36).substr(2, 9),
+        file,
+        name: file.name,
+        duration,
+        status: 'uploaded' as const
+      };
     }));
-    setTracks((prev) => [...prev, ...newTracks]);
     
-    // Auto-decode duration if possible (optional, skipping for now to keep it fast)
+    setTracks((prev) => [...prev, ...newTracks]);
   };
 
-  const handleYoutubeUrl = async (url: string) => {
-    // In a real app, we would fetch the stream here or send to backend
-    // For now, let's assume the backend returns a blob/stream we can turn into a File object
+  const handleChatInstruction = async (text: string) => {
+    setIsChatProcessing(true);
+    
+    // Add user message
+    const userMsg: ChatMessage = {
+      id: Date.now().toString(),
+      role: 'user',
+      text,
+      timestamp: new Date()
+    };
+    setChatMessages(prev => [...prev, userMsg]);
+
     try {
-      const response = await fetch('/api/extract-youtube', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url }),
-      });
+      const trackData = tracks.map(t => ({ name: t.name, language: t.language }));
+      const plan = await generateMashupPlan(trackData, text);
       
-      if (!response.ok) throw new Error('Failed to extract');
+      // Update settings
+      setSettings(plan.settings);
       
-      const blob = await response.blob();
-      const filename = response.headers.get('Content-Disposition')?.split('filename=')[1]?.replace(/"/g, '') || 'youtube_audio.mp3';
-      const file = new File([blob], filename, { type: 'audio/mpeg' });
-      
-      handleFileUpload([file]);
+      // Add AI response
+      const aiMsg: ChatMessage = {
+        id: (Date.now() + 1).toString(),
+        role: 'ai',
+        text: plan.responseMessage,
+        timestamp: new Date()
+      };
+      setChatMessages(prev => [...prev, aiMsg]);
+
+      // Simulate "Searching and Adding" recommended songs
+      if (plan.recommendedSongs.length > 0) {
+        // Add placeholder tracks
+        const newPlaceholderTracks = plan.recommendedSongs.map(songName => ({
+          id: Math.random().toString(36).substr(2, 9),
+          file: new File([], songName, { type: 'audio/mp3' }), // Empty file
+          name: songName,
+          duration: 0,
+          status: 'searching' as const
+        }));
+        
+        setTracks(prev => [...prev, ...newPlaceholderTracks]);
+
+        // Simulate "finding" them one by one
+        newPlaceholderTracks.forEach((track, index) => {
+          setTimeout(() => {
+            setTracks(prev => prev.map(t => {
+              if (t.id === track.id) {
+                return {
+                  ...t,
+                  status: 'error', // We can't actually download, so show error/placeholder state
+                  name: `[DEMO] ${t.name}` 
+                };
+              }
+              return t;
+            }));
+            
+            // Add a follow-up message explaining the demo nature
+            if (index === newPlaceholderTracks.length - 1) {
+              setChatMessages(prev => [...prev, {
+                id: Date.now().toString(),
+                role: 'ai',
+                text: "I've added the recommended songs to the playlist. \n\n⚠️ Note: Since I cannot download copyrighted music directly, these are placeholder tracks. Please upload the actual audio files if you have them.\n\nI've also updated the remix settings based on your request. Click 'PROCESS MIX' to hear the result!",
+                timestamp: new Date()
+              }]);
+            }
+          }, (index + 1) * 2000); // Stagger the "search"
+        });
+      }
+
     } catch (error) {
       console.error(error);
-      alert('Failed to extract YouTube audio');
+      setChatMessages(prev => [...prev, {
+        id: Date.now().toString(),
+        role: 'ai',
+        text: "Sorry, I encountered an error while processing your request.",
+        timestamp: new Date()
+      }]);
+    } finally {
+      setIsChatProcessing(false);
     }
-  };
-
-  const handleRecordingComplete = async (blob: Blob) => {
-    // 1. Add to tracks
-    const file = new File([blob], `Recording_${new Date().toLocaleTimeString()}.webm`, { type: 'audio/webm' });
-    handleFileUpload([file]);
-
-    // 2. Transcribe
-    setIsTranscribing(true);
-    const text = await transcribeAudio(blob);
-    setTranscription(text);
-    setIsTranscribing(false);
   };
 
   const handleRemoveTrack = (id: string) => {
@@ -307,31 +379,8 @@ function App() {
           <div className="lg:col-span-2 space-y-8">
             <UploadZone 
               onFileUpload={handleFileUpload} 
-              onYoutubeUrl={handleYoutubeUrl}
-              onRecordingComplete={handleRecordingComplete}
-              isProcessing={isProcessing}
             />
             
-            {/* Transcription Result */}
-            {(isTranscribing || transcription) && (
-              <div className="bg-black/40 backdrop-blur-md border border-white/10 rounded-xl p-6 animate-in fade-in">
-                <h3 className="text-white font-orbitron text-lg mb-2 flex items-center gap-2">
-                  <FileText size={20} className="text-pink-500" />
-                  AI Transcription
-                </h3>
-                {isTranscribing ? (
-                  <div className="flex items-center space-x-2 text-gray-400">
-                    <Loader2 className="animate-spin" size={16} />
-                    <span>Transcribing audio...</span>
-                  </div>
-                ) : (
-                  <p className="text-gray-300 italic bg-white/5 p-4 rounded-lg border border-white/5">
-                    "{transcription}"
-                  </p>
-                )}
-              </div>
-            )}
-
             <TrackList 
               tracks={tracks} 
               onRemoveTrack={handleRemoveTrack} 
@@ -339,6 +388,19 @@ function App() {
               onDetectBPM={handleDetectBPM}
               detectingBPMId={detectingBPMId}
             />
+
+            {/* AI Mashup Chat */}
+            <div className="mt-8">
+              <h3 className="text-white font-orbitron text-lg mb-4 flex items-center gap-2">
+                <MessageSquare size={20} className="text-pink-500" />
+                AI Mashup Assistant
+              </h3>
+              <MashupChat 
+                onSendMessage={handleChatInstruction}
+                isProcessing={isChatProcessing}
+                messages={chatMessages}
+              />
+            </div>
           </div>
 
           {/* Right Column: Settings & Actions */}

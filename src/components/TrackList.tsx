@@ -30,9 +30,21 @@ export function TrackList({ tracks, onRemoveTrack, onUpdateLanguage, onDetectBPM
               <div className="overflow-hidden">
                 <p className="text-white font-rajdhani font-medium truncate">{track.name}</p>
                 <div className="flex items-center gap-2 text-gray-500 text-xs">
-                  <span>{(track.duration || 0).toFixed(1)}s</span>
-                  <span>•</span>
-                  <span>{((track.file.size || 0) / 1024 / 1024).toFixed(2)} MB</span>
+                  {track.status === 'searching' ? (
+                    <span className="text-orange-400 flex items-center gap-1">
+                      <Loader2 size={10} className="animate-spin" /> Searching...
+                    </span>
+                  ) : track.status === 'error' ? (
+                    <span className="text-red-400 flex items-center gap-1 text-[10px] uppercase tracking-wider border border-red-500/30 px-1.5 py-0.5 rounded">
+                      ⚠️ Placeholder (No Audio)
+                    </span>
+                  ) : (
+                    <>
+                      <span>{(track.duration || 0).toFixed(1)}s</span>
+                      <span>•</span>
+                      <span>{((track.file.size || 0) / 1024 / 1024).toFixed(2)} MB</span>
+                    </>
+                  )}
                   {track.bpm && (
                     <>
                       <span>•</span>

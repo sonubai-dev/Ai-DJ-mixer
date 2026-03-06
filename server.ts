@@ -2,8 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import multer from 'multer';
 import { createServer as createViteServer } from 'vite';
-import ytdl from '@distube/ytdl-core';
-import ffmpeg from 'fluent-ffmpeg';
+import play from 'play-dl';
 import fs from 'fs';
 import path from 'path';
 
@@ -23,53 +22,40 @@ if (!fs.existsSync('uploads')) {
 
 // API Routes
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', ytdl: true, ffmpeg: true });
+  res.json({ status: 'ok', playdl: true });
 });
 
 app.post('/api/extract-youtube', async (req, res) => {
   const { url } = req.body;
 
-  if (!url || !ytdl.validateURL(url)) {
+  if (!url || play.yt_validate(url) === false) {
     return res.status(400).json({ error: 'Invalid YouTube URL' });
   }
 
   try {
-    const info = await ytdl.getInfo(url);
-    const format = ytdl.chooseFormat(info.formats, { quality: 'highestaudio' });
+    const info = await play.video_info(url);
+    const stream = await play.stream(url);
 
-    if (!format) {
-      return res.status(400).json({ error: 'No audio format found' });
-    }
+    const title = info.video_details.title || 'audio';
+    // Sanitize filename
+    const safeTitle = title.replace(/[^a-z0-9]/gi, '_');
+    const filename = `${safeTitle}.mp3`;
 
-    res.header('Content-Type', 'audio/mpeg');
-    res.header('Content-Disposition', `attachment; filename="${info.videoDetails.title}.mp3"`);
+    // play-dl streams are usually webm/opus or similar, but we can set content type to audio/mpeg 
+    // and let the browser handle it, or just generic audio
+    // The stream object has a 'type' property
+    
+    res.header('Content-Type', 'audio/mpeg'); 
+    res.header('Content-Disposition', `attachment; filename="${filename}"`);
 
-    // Stream audio directly to client
-    // Note: In a real production app, we might want to use ffmpeg to convert to MP3 if the source isn't MP3.
-    // ytdl-core usually returns webm/opus or m4a/aac.
-    // We can pipe it through ffmpeg to ensure MP3.
-    
-    const stream = ytdl(url, { format: format });
-    
-    // Simple pipe for now. The client AudioContext can decode many formats (webm, m4a, mp3).
-    // We don't strictly *need* to convert to MP3 on the server if the browser can decode it.
-    // However, the prompt asked for "Stream MP3 audio back".
-    // Let's try to convert using ffmpeg.
-    
-    ffmpeg(stream)
-      .format('mp3')
-      .audioBitrate(128)
-      .on('error', (err) => {
-        console.error('FFmpeg error:', err);
-        if (!res.headersSent) {
-          res.status(500).json({ error: 'Audio processing failed' });
-        }
-      })
-      .pipe(res, { end: true });
+    // Pipe the stream directly to the response
+    stream.stream.pipe(res);
 
   } catch (error) {
     console.error('YouTube extraction error:', error);
-    res.status(500).json({ error: 'Failed to extract audio' });
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Failed to extract audio' });
+    }
   }
 });
 
