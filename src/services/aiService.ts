@@ -18,22 +18,19 @@ export async function getTrendBasedRemixSettings(tracks: {name: string, language
 
   try {
     const trackList = tracks.map(t => `"${t.name}" (${t.language || 'Unknown'})`).join(', ');
-    const isMashup = tracks.length > 1;
-
+    
     const prompt = `
       You are a professional DJ and Music Producer expert in Indian and Global music trends.
       Analyze the following song(s): ${trackList}.
       
-      ${isMashup 
-        ? 'Since there are multiple songs, suggest the best "Mashup" settings to blend them perfectly.' 
-        : `Search your knowledge for top-performing, viral remixes of this song or similar songs in this genre/language on YouTube. 
-           Identify the specific "winning formula" used in those hits (e.g., heavy bass boost, specific slowed+reverb ratio, or lofi vibe). 
-           Apply those exact stylistic elements (beat, bass, slowed & reverb settings) to THIS song to recreate that viral success.
-           Consider top-performing songs in every category and language to find the best match.`}
+      Search your knowledge for top-performing, viral remixes of this song or similar songs in this genre/language on YouTube. 
+      Identify the specific "winning formula" used in those hits (e.g., heavy bass boost, specific slowed+reverb ratio, 8D audio effects, or lofi vibe). 
+      Apply those exact stylistic elements (beat, bass, slowed & reverb, spatial panning) to THIS song to recreate that viral success.
+      Consider top-performing songs in every category and language to find the best match.
 
       Return a JSON object with the following structure:
       {
-        "mode": "${isMashup ? 'mashup' : 'dj" | "slowed" | "mashup'}",
+        "mode": "dj" | "slowed" | "3d" | "8d" | "16d" | "3d-dj" | "3d-slowed" | "8d-dj" | "8d-slowed" | "16d-dj" | "16d-slowed",
         "settings": {
           "bassBoost": number (0-20),
           "echoDelay": number (0-1000),
@@ -41,7 +38,7 @@ export async function getTrendBasedRemixSettings(tracks: {name: string, language
           "slowFactor": number (50-100),
           "reverbWet": number (0-100),
           "reverbSize": number (0-10),
-          "crossfadeDuration": number (0-10)
+          "panningSpeed": number (1-20)
         },
         "explanation": "A short sentence explaining why you chose these settings based on the song's vibe and current trends."
       }
@@ -56,7 +53,7 @@ export async function getTrendBasedRemixSettings(tracks: {name: string, language
     const text = response.text?.trim().replace(/```json|```/g, '') || "{}";
     return JSON.parse(text) as TrendRemixResponse;
   } catch (error) {
-    console.error("AI Trend Analysis Error:", error);
+    console.error("AI Trend Analysis Analysis Error:", error);
     return null;
   }
 }
@@ -99,84 +96,5 @@ export async function guessBPMFromMetadata(filename: string): Promise<number | n
   } catch (error) {
     console.error("AI BPM Guess Error:", error);
     return null;
-  }
-}
-
-export async function generateMashupPlan(
-  currentTracks: { name: string; language?: string }[],
-  userInstruction: string
-): Promise<{
-  recommendedSongs: string[];
-  settings: RemixSettings;
-  responseMessage: string;
-}> {
-  if (!apiKey) {
-    return {
-      recommendedSongs: [],
-      settings: {
-        bassBoost: 0,
-        echoDelay: 0,
-        echoFeedback: 0,
-        slowFactor: 100,
-        reverbWet: 0,
-        reverbSize: 0,
-        crossfadeDuration: 2
-      },
-      responseMessage: "API Key is missing. I cannot generate a plan."
-    };
-  }
-
-  try {
-    const prompt = `
-      Act as a professional DJ and Music Curator.
-      
-      Current Playlist: ${JSON.stringify(currentTracks)}
-      User Instructions: "${userInstruction}"
-      
-      Task:
-      1. Analyze the current playlist and user instructions.
-      2. Recommend 3-5 songs that would mix perfectly with the current tracks to create a seamless mashup/jukebox.
-      3. Determine the best remix settings (speed, reverb, bass) based on the user's request (e.g., "slowed and reverb", "high energy").
-      4. Provide a friendly, DJ-like response message explaining your choices.
-      
-      Output JSON format:
-      {
-        "recommendedSongs": ["Song Name - Artist", "Song Name - Artist"],
-        "settings": {
-          "bassBoost": number (0-20),
-          "echoDelay": number (0-1000),
-          "echoFeedback": number (0-100),
-          "slowFactor": number (50-150, where 100 is normal speed, <100 is slowed),
-          "reverbWet": number (0-100),
-          "reverbSize": number (0-10),
-          "crossfadeDuration": number (0-10)
-        },
-        "responseMessage": "Your message here..."
-      }
-      Do not include markdown formatting. Just the JSON string.
-    `;
-
-    const response = await ai.models.generateContent({
-      model: "gemini-3.1-flash-lite-preview",
-      contents: prompt,
-    });
-
-    const text = response.text?.trim().replace(/```json|```/g, '') || "{}";
-    return JSON.parse(text);
-  } catch (error) {
-    console.error('Error generating mashup plan:', error);
-    return {
-      recommendedSongs: [],
-      settings: {
-        bassBoost: 0,
-        echoDelay: 0,
-        echoFeedback: 0,
-        slowFactor: 100,
-        reverbWet: 0,
-        reverbSize: 0,
-        crossfadeDuration: 2
-      },
-      responseMessage: "Sorry, I couldn't generate a plan right now."
-    };
   }
 }

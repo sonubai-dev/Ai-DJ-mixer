@@ -48,24 +48,27 @@ export function useAudioProcessor() {
 
       // 2. Determine output duration
       let outputDuration = 0;
-      if (mode === 'mashup') {
-        // Calculate total duration with crossfades
-        outputDuration = decodedTracks.reduce((acc, track) => acc + track.buffer!.duration, 0);
-        // Subtract crossfades (simplified)
-        if (decodedTracks.length > 1) {
-          outputDuration -= (decodedTracks.length - 1) * settings.crossfadeDuration;
-        }
-      } else {
-        // For single track modes, take the longest track (usually just one)
-        outputDuration = Math.max(...decodedTracks.map((t) => t.buffer!.duration));
-        
-        // Add tail for reverb/echo
-        if (mode === 'slowed') {
-            outputDuration = outputDuration / (settings.slowFactor / 100); // Adjust for speed
-            outputDuration += settings.reverbSize; // Add reverb tail
-        } else if (mode === 'dj') {
-            outputDuration += 2; // Add echo tail
-        }
+      const track = decodedTracks[0];
+      if (!track || !track.buffer) throw new Error('No track to process');
+
+      const isDJ = mode.includes('dj') || mode === 'dj';
+      const isSlowed = mode.includes('slowed') || mode === 'slowed';
+      const isSpatial = mode.includes('3d') || mode.includes('8d') || mode.includes('16d');
+
+      // Base duration
+      outputDuration = track.buffer.duration;
+
+      // Adjust for speed
+      if (isSlowed) {
+        outputDuration = outputDuration / (settings.slowFactor / 100);
+      }
+
+      // Add tails
+      if (isSlowed || isSpatial) {
+        outputDuration += settings.reverbSize + 2; // Reverb tail
+      }
+      if (isDJ) {
+        outputDuration += 2; // Echo tail
       }
 
       // 3. Create OfflineAudioContext
@@ -76,15 +79,22 @@ export function useAudioProcessor() {
       );
 
       // 4. Build the Graph
-      const sourceNodes: AudioBufferSourceNode[] = [];
+      const source = offlineCtx.createBufferSource();
+      source.buffer = track.buffer;
 
-      if (mode === 'dj') {
-        const track = decodedTracks[0];
-        if (!track || !track.buffer) throw new Error('No track for DJ mode');
+      if (isSlowed) {
+        source.playbackRate.value = settings.slowFactor / 100;
+      }
 
-        const source = offlineCtx.createBufferSource();
-        source.buffer = track.buffer;
+      const masterGain = offlineCtx.createGain();
+      masterGain.gain.value = 0.9; 
+      masterGain.connect(offlineCtx.destination);
 
+      // Track the end of the signal chain
+      let currentChainNode: AudioNode = source;
+
+      // --- DJ EFFECTS CHAIN (Insert) ---
+      if (isDJ) {
         // Sub-bass boost: 60Hz, +6dB
         const subBass = offlineCtx.createBiquadFilter();
         subBass.type = 'peaking';
@@ -110,126 +120,105 @@ export function useAudioProcessor() {
         highShelf.frequency.value = 10000;
         highShelf.gain.value = 3.5;
 
-        // Echo/Delay
+        // Connect Filters
+        currentChainNode.connect(subBass);
+        subBass.connect(bassShelf);
+        bassShelf.connect(midScoop);
+        midScoop.connect(highShelf);
+        
+        currentChainNode = highShelf;
+
+        // --- DJ ECHO (Send) ---
         const delay = offlineCtx.createDelay();
         delay.delayTime.value = settings.echoDelay / 1000;
 
         const feedback = offlineCtx.createGain();
         feedback.gain.value = settings.echoFeedback / 100;
 
-        const echoFilter = offlineCtx.createBiquadFilter(); // Dampen echo
+        const echoFilter = offlineCtx.createBiquadFilter();
         echoFilter.type = 'lowpass';
         echoFilter.frequency.value = 2000;
 
-        // Connect Echo Loop
+        // Echo Loop
         delay.connect(echoFilter);
         echoFilter.connect(feedback);
         feedback.connect(delay);
 
-        // Limiter
-        const limiter = offlineCtx.createDynamicsCompressor();
-        limiter.threshold.value = -0.5;
-        limiter.knee.value = 0;
-        limiter.ratio.value = 20;
-        limiter.attack.value = 0.005;
-        limiter.release.value = 0.050;
-
-        const masterGain = offlineCtx.createGain();
-        masterGain.gain.value = 0.82;
-
-        // Wiring
-        source.connect(subBass);
-        subBass.connect(bassShelf);
-        bassShelf.connect(midScoop);
-        midScoop.connect(highShelf);
+        // Connect to Echo (Send)
+        currentChainNode.connect(delay);
         
-        // Split to dry and wet (echo)
-        highShelf.connect(limiter); // Dry path
-        highShelf.connect(delay);   // Wet path
-        delay.connect(limiter);     // Wet return
+        // Echo return to Master (Parallel)
+        delay.connect(masterGain);
+      }
 
-        limiter.connect(masterGain);
-        masterGain.connect(offlineCtx.destination);
-
-        source.start(0);
-        sourceNodes.push(source);
-
-      } else if (mode === 'slowed') {
-        const track = decodedTracks[0];
-        if (!track || !track.buffer) throw new Error('No track for Slowed mode');
-
-        const source = offlineCtx.createBufferSource();
-        source.buffer = track.buffer;
-        source.playbackRate.value = settings.slowFactor / 100;
-
-        // Reverb
+      // --- REVERB (Send) ---
+      // Applied if Slowed OR Spatial (to give it depth)
+      if (isSlowed || isSpatial) {
         const convolver = offlineCtx.createConvolver();
-        // Generate simple impulse response
+        
+        // Reverb Settings
+        // If Slowed, use user settings. If Spatial only, use defaults.
+        const reverbSize = isSlowed ? settings.reverbSize : 2.5;
+        const reverbWet = isSlowed ? settings.reverbWet : 20;
+
+        // Generate Impulse Response
         const rate = offlineCtx.sampleRate;
-        const length = rate * settings.reverbSize;
+        const length = rate * reverbSize;
         const decay = 2.0;
         const impulse = offlineCtx.createBuffer(2, length, rate);
         const impulseL = impulse.getChannelData(0);
         const impulseR = impulse.getChannelData(1);
+        
         for (let i = 0; i < length; i++) {
-          const n = length - i;
-          impulseL[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / length, decay);
-          impulseR[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / length, decay);
+          const power = Math.pow(1 - i / length, decay);
+          impulseL[i] = (Math.random() * 2 - 1) * power;
+          impulseR[i] = (Math.random() * 2 - 1) * power;
         }
         convolver.buffer = impulse;
 
-        const dryGain = offlineCtx.createGain();
         const wetGain = offlineCtx.createGain();
-        
-        const wetAmount = settings.reverbWet / 100;
-        dryGain.gain.value = 1 - wetAmount;
-        wetGain.gain.value = wetAmount;
+        wetGain.gain.value = reverbWet / 100;
 
-        source.connect(dryGain);
-        source.connect(convolver);
+        // Connect Reverb (Send)
+        currentChainNode.connect(convolver);
         convolver.connect(wetGain);
-
-        dryGain.connect(offlineCtx.destination);
-        wetGain.connect(offlineCtx.destination);
-
-        source.start(0);
-        sourceNodes.push(source);
-
-      } else if (mode === 'mashup') {
-        let startTime = 0;
-        const crossfade = settings.crossfadeDuration;
-
-        decodedTracks.forEach((track, index) => {
-          if (!track.buffer) return;
-
-          const source = offlineCtx.createBufferSource();
-          source.buffer = track.buffer;
-
-          const gainNode = offlineCtx.createGain();
-          
-          source.connect(gainNode);
-          gainNode.connect(offlineCtx.destination);
-
-          source.start(startTime);
-
-          // Crossfading logic
-          if (index > 0) {
-            // Fade in
-            gainNode.gain.setValueAtTime(0, startTime);
-            gainNode.gain.linearRampToValueAtTime(1, startTime + crossfade);
-          }
-          
-          if (index < decodedTracks.length - 1) {
-             // Fade out
-             const endTime = startTime + track.buffer.duration;
-             gainNode.gain.setValueAtTime(1, endTime - crossfade);
-             gainNode.gain.linearRampToValueAtTime(0, endTime);
-          }
-
-          startTime += track.buffer.duration - crossfade;
-          sourceNodes.push(source);
-        });
+        wetGain.connect(masterGain);
       }
+
+      // --- SPATIAL PANNER (Insert) ---
+      if (isSpatial) {
+        const panner = offlineCtx.createStereoPanner();
+        
+        // Calculate Panning Automation
+        const totalTime = outputDuration;
+        const speed = settings.panningSpeed || 8; // seconds per cycle
+        const frequency = 1 / speed;
+        
+        const sampleCount = Math.ceil(totalTime * 100);
+        const panValues = new Float32Array(sampleCount);
+        
+        for (let i = 0; i < sampleCount; i++) {
+          const t = (i / sampleCount) * totalTime;
+          // Sine wave from -1 to 1
+          let val = Math.sin(2 * Math.PI * frequency * t);
+          
+          // For "3D", maybe we don't go full hard left/right?
+          if (mode.includes('3d')) {
+             val *= 0.6; // Narrower for 3D
+          }
+          panValues[i] = val;
+        }
+        
+        panner.pan.setValueCurveAtTime(panValues, 0, totalTime);
+        
+        currentChainNode.connect(panner);
+        panner.connect(masterGain);
+      } else {
+        // No spatial, just connect to master
+        currentChainNode.connect(masterGain);
+      }
+
+      source.start(0);
 
       // 5. Render
       const renderedBuffer = await offlineCtx.startRendering();

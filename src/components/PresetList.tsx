@@ -66,9 +66,9 @@ export function PresetList({ onLoadPreset }: PresetListProps) {
   if (!user) return null;
 
   return (
-    <div className="bg-black/40 backdrop-blur-md border border-white/10 rounded-xl p-6 mt-8">
+    <div className="bg-gray-900 border border-white/10 rounded-xl p-6 mt-8">
       <h3 className="text-xl font-orbitron text-white mb-4 flex items-center gap-2">
-        <Settings size={20} className="text-orange-500" />
+        <Settings size={20} className="text-white" />
         Saved Presets
       </h3>
       
@@ -100,7 +100,7 @@ export function PresetList({ onLoadPreset }: PresetListProps) {
 
               <button
                 onClick={() => onLoadPreset(preset)}
-                className="w-full bg-white/10 hover:bg-white/20 text-white py-2 rounded text-xs font-orbitron tracking-wider flex items-center justify-center gap-2 transition-colors"
+                className="w-full bg-white/10 hover:bg-orange-600 text-white py-2 rounded text-xs font-orbitron tracking-wider flex items-center justify-center gap-2 transition-colors"
               >
                 <Play size={12} />
                 LOAD SETTINGS

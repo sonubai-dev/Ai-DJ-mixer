@@ -20,8 +20,23 @@ export interface RemixSettings {
   reverbWet: number; // %
   reverbSize: number; // seconds
 
+  // Spatial Mode (3D/8D/16D)
+  panningSpeed: number; // seconds per revolution
+
   // Mashup Mode
   crossfadeDuration: number; // seconds
 }
 
-export type RemixMode = 'dj' | 'slowed' | 'mashup';
+export type RemixMode = 
+  | 'dj' 
+  | 'slowed' 
+  | 'mashup'
+  | '3d' 
+  | '8d' 
+  | '16d' 
+  | '3d-dj' 
+  | '3d-slowed' 
+  | '8d-dj' 
+  | '8d-slowed' 
+  | '16d-dj' 
+  | '16d-slowed';

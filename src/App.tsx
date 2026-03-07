@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { UploadZone } from './components/UploadZone';
 import { TrackList } from './components/TrackList';
 import { ModeSelector } from './components/ModeSelector';
@@ -6,16 +6,16 @@ import { SettingsPanel } from './components/SettingsPanel';
 import { Visualizer } from './components/Visualizer';
 import { AuthButton } from './components/AuthButton';
 import { PresetList, MixPreset } from './components/PresetList';
-import { MashupChat } from './components/MashupChat';
 import { useAudioProcessor } from './hooks/useAudioProcessor';
 import { AudioTrack, RemixMode, RemixSettings } from './types';
 import { audioBufferToWav } from './utils/encodeWAV';
 import { detectBPM } from './utils/bpmDetection';
-import { generateDJTitle, guessBPMFromMetadata, getTrendBasedRemixSettings, generateMashupPlan } from './services/aiService';
-import { Play, Pause, Download, Wand2, Loader2, Save, Sparkles, MessageSquare } from 'lucide-react';
+import { generateDJTitle, guessBPMFromMetadata, getTrendBasedRemixSettings } from './services/aiService';
+import { Play, Pause, Download, Wand2, Loader2, Save, Sparkles, LayoutDashboard } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { db, auth } from './firebase';
 import { collection, addDoc } from 'firebase/firestore';
+import { Dashboard } from './components/Dashboard';
 
 interface ChatMessage {
   id: string;
@@ -34,7 +34,8 @@ function App() {
     slowFactor: 85,
     reverbWet: 30,
     reverbSize: 2.5,
-    crossfadeDuration: 2,
+    panningSpeed: 8,
+    crossfadeDuration: 5,
   });
 
   const [isPlaying, setIsPlaying] = useState(false);
@@ -43,15 +44,20 @@ function App() {
   const [isSaving, setIsSaving] = useState(false);
   const [isAnalyzingTrends, setIsAnalyzingTrends] = useState(false);
   const [detectingBPMId, setDetectingBPMId] = useState<string | null>(null);
+  const [currentView, setCurrentView] = useState<'studio' | 'dashboard'>('studio');
   
-  // Chat State
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
-  const [isChatProcessing, setIsChatProcessing] = useState(false);
-
   const { processAudio, isProcessing, processedBuffer, audioContext, decodeAudio } = useAudioProcessor();
   const sourceNodeRef = useRef<AudioBufferSourceNode | null>(null);
   const startTimeRef = useRef<number>(0);
   const pauseTimeRef = useRef<number>(0);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+
+  useEffect(() => {
+    if (audioContext && !analyserRef.current) {
+      analyserRef.current = audioContext.createAnalyser();
+      analyserRef.current.fftSize = 256;
+    }
+  }, [audioContext]);
 
   const handleFileUpload = async (files: File[]) => {
     const newTracks = await Promise.all(files.map(async (file) => {
@@ -81,85 +87,33 @@ function App() {
     setTracks((prev) => [...prev, ...newTracks]);
   };
 
-  const handleChatInstruction = async (text: string) => {
-    setIsChatProcessing(true);
-    
-    // Add user message
-    const userMsg: ChatMessage = {
-      id: Date.now().toString(),
-      role: 'user',
-      text,
-      timestamp: new Date()
-    };
-    setChatMessages(prev => [...prev, userMsg]);
-
+  const handleReplaceTrack = async (id: string, file: File) => {
+    let duration = 0;
     try {
-      const trackData = tracks.map(t => ({ name: t.name, language: t.language }));
-      const plan = await generateMashupPlan(trackData, text);
-      
-      // Update settings
-      setSettings(plan.settings);
-      
-      // Add AI response
-      const aiMsg: ChatMessage = {
-        id: (Date.now() + 1).toString(),
-        role: 'ai',
-        text: plan.responseMessage,
-        timestamp: new Date()
-      };
-      setChatMessages(prev => [...prev, aiMsg]);
-
-      // Simulate "Searching and Adding" recommended songs
-      if (plan.recommendedSongs.length > 0) {
-        // Add placeholder tracks
-        const newPlaceholderTracks = plan.recommendedSongs.map(songName => ({
-          id: Math.random().toString(36).substr(2, 9),
-          file: new File([], songName, { type: 'audio/mp3' }), // Empty file
-          name: songName,
-          duration: 0,
-          status: 'searching' as const
-        }));
-        
-        setTracks(prev => [...prev, ...newPlaceholderTracks]);
-
-        // Simulate "finding" them one by one
-        newPlaceholderTracks.forEach((track, index) => {
-          setTimeout(() => {
-            setTracks(prev => prev.map(t => {
-              if (t.id === track.id) {
-                return {
-                  ...t,
-                  status: 'error', // We can't actually download, so show error/placeholder state
-                  name: `[DEMO] ${t.name}` 
-                };
-              }
-              return t;
-            }));
-            
-            // Add a follow-up message explaining the demo nature
-            if (index === newPlaceholderTracks.length - 1) {
-              setChatMessages(prev => [...prev, {
-                id: Date.now().toString(),
-                role: 'ai',
-                text: "I've added the recommended songs to the playlist. \n\n⚠️ Note: Since I cannot download copyrighted music directly, these are placeholder tracks. Please upload the actual audio files if you have them.\n\nI've also updated the remix settings based on your request. Click 'PROCESS MIX' to hear the result!",
-                timestamp: new Date()
-              }]);
-            }
-          }, (index + 1) * 2000); // Stagger the "search"
-        });
-      }
-
-    } catch (error) {
-      console.error(error);
-      setChatMessages(prev => [...prev, {
-        id: Date.now().toString(),
-        role: 'ai',
-        text: "Sorry, I encountered an error while processing your request.",
-        timestamp: new Date()
-      }]);
-    } finally {
-      setIsChatProcessing(false);
+      const audio = new Audio(URL.createObjectURL(file));
+      await new Promise((resolve) => {
+        audio.onloadedmetadata = () => {
+          duration = audio.duration;
+          resolve(null);
+        };
+        audio.onerror = () => resolve(null);
+      });
+    } catch (e) {
+      console.error("Error getting duration", e);
     }
+
+    setTracks((prev) => prev.map((t) => {
+      if (t.id === id) {
+        return {
+          ...t,
+          file,
+          duration,
+          status: 'uploaded',
+          buffer: undefined
+        };
+      }
+      return t;
+    }));
   };
 
   const handleRemoveTrack = (id: string) => {
@@ -267,7 +221,13 @@ function App() {
       // Play
       const source = audioContext.createBufferSource();
       source.buffer = processedBuffer;
-      source.connect(audioContext.destination);
+      
+      if (analyserRef.current) {
+        source.connect(analyserRef.current);
+        analyserRef.current.connect(audioContext.destination);
+      } else {
+        source.connect(audioContext.destination);
+      }
       
       source.start(0, pauseTimeRef.current % processedBuffer.duration);
       startTimeRef.current = audioContext.currentTime - (pauseTimeRef.current % processedBuffer.duration);
@@ -351,20 +311,34 @@ function App() {
     alert(`Loaded settings for "${preset.name}". \nMode: ${preset.mode}\n\nNote: Original audio files cannot be restored automatically. Please upload tracks to apply these settings.`);
   };
 
+  if (currentView === 'dashboard') {
+    return <Dashboard onBack={() => setCurrentView('studio')} />;
+  }
+
   return (
-    <div className="min-h-screen bg-[#050314] text-white font-rajdhani selection:bg-pink-500 selection:text-white pb-20">
+    <div className="min-h-screen bg-black text-white font-rajdhani selection:bg-orange-500 selection:text-white pb-20">
       {/* Header */}
-      <header className="border-b border-white/10 bg-black/50 backdrop-blur-lg sticky top-0 z-50">
+      <header className="border-b border-white/10 bg-black sticky top-0 z-50 shadow-lg shadow-orange-900/10">
         <div className="container mx-auto px-4 py-4 flex justify-between items-center">
-          <div className="flex items-center space-x-2">
-            <div className="w-10 h-10 bg-gradient-to-br from-orange-500 to-pink-500 rounded-lg flex items-center justify-center shadow-[0_0_15px_rgba(255,107,26,0.5)]">
-              <span className="font-orbitron font-bold text-xl">DJ</span>
+          <div className="flex items-center space-x-3">
+            <div className="w-12 h-12 bg-orange-600 text-white rounded-xl flex items-center justify-center shadow-[0_0_20px_rgba(234,88,12,0.4)] ring-1 ring-white/20">
+              <span className="font-orbitron font-bold text-2xl drop-shadow-md">DJ</span>
             </div>
-            <h1 className="text-2xl font-orbitron tracking-wider bg-clip-text text-transparent bg-gradient-to-r from-white to-gray-400">
-              INDIAN REMIX STUDIO
-            </h1>
+            <div>
+              <h1 className="text-3xl font-black font-orbitron tracking-widest text-white drop-shadow-lg">
+                INDIAN REMIX STUDIO
+              </h1>
+              <p className="text-xs text-orange-500 font-rajdhani font-bold tracking-[0.2em] uppercase">AI-Powered Production Suite</p>
+            </div>
           </div>
           <div className="flex items-center space-x-4">
+             <button 
+               onClick={() => setCurrentView('dashboard')}
+               className="flex items-center gap-2 px-4 py-2 bg-white/5 hover:bg-orange-600 text-white rounded-lg transition-all font-bold tracking-wide border border-white/10 hover:border-orange-500/50"
+             >
+               <LayoutDashboard size={18} />
+               <span className="hidden sm:inline">Dashboard</span>
+             </button>
              <AuthButton />
           </div>
         </div>
@@ -386,21 +360,9 @@ function App() {
               onRemoveTrack={handleRemoveTrack} 
               onUpdateLanguage={handleUpdateLanguage}
               onDetectBPM={handleDetectBPM}
+              onReplaceTrack={handleReplaceTrack}
               detectingBPMId={detectingBPMId}
             />
-
-            {/* AI Mashup Chat */}
-            <div className="mt-8">
-              <h3 className="text-white font-orbitron text-lg mb-4 flex items-center gap-2">
-                <MessageSquare size={20} className="text-pink-500" />
-                AI Mashup Assistant
-              </h3>
-              <MashupChat 
-                onSendMessage={handleChatInstruction}
-                isProcessing={isChatProcessing}
-                messages={chatMessages}
-              />
-            </div>
           </div>
 
           {/* Right Column: Settings & Actions */}
@@ -409,10 +371,11 @@ function App() {
               mode={activeMode} 
               settings={settings} 
               onSettingsChange={setSettings} 
+              tracks={tracks}
             />
 
             {/* Action Card */}
-            <div className="bg-black/40 backdrop-blur-md border border-white/10 rounded-xl p-6">
+            <div className="bg-gray-900 border border-white/10 rounded-xl p-6">
               <h3 className="text-xl font-orbitron text-white mb-4">Actions</h3>
               
               <button
@@ -500,9 +463,8 @@ function App() {
         {/* Visualizer (Full Width) */}
         <div className="mt-8">
            <Visualizer 
-             audioBuffer={processedBuffer} 
+             analyser={analyserRef.current} 
              isPlaying={isPlaying} 
-             currentTime={0} // Placeholder
            />
         </div>
 

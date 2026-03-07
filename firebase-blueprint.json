@@ -8,7 +8,9 @@
         "uid": { "type": "string" },
         "email": { "type": "string" },
         "displayName": { "type": "string" },
+        "artistName": { "type": "string" },
         "photoURL": { "type": "string" },
+        "plan": { "type": "string", "enum": ["free", "pro", "studio"] },
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["uid", "email"]

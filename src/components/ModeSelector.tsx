@@ -15,24 +15,25 @@ export function ModeSelector({ activeMode, onModeChange }: ModeSelectorProps) {
           key={mode.id}
           onClick={() => onModeChange(mode.id as RemixMode)}
           className={clsx(
-            'relative overflow-hidden p-6 rounded-xl border transition-all duration-300 group text-left',
+            'relative overflow-hidden p-6 rounded-2xl border transition-all duration-300 group text-left shadow-lg',
             activeMode === mode.id
-              ? 'border-transparent bg-black/60 shadow-[0_0_20px_rgba(255,107,26,0.3)]'
-              : 'border-white/10 bg-black/20 hover:bg-white/5 hover:border-white/20'
+              ? 'border-orange-500 bg-orange-500/10 shadow-[0_0_30px_rgba(249,115,22,0.2)] scale-[1.02]'
+              : 'border-white/10 bg-gray-900 hover:bg-gray-800 hover:border-orange-500/50 hover:shadow-xl'
           )}
         >
           {/* Active Border Gradient */}
           {activeMode === mode.id && (
-            <div className="absolute inset-0 rounded-xl p-[1px] bg-gradient-to-r from-orange-500 via-pink-500 to-yellow-500 -z-10" />
+            <div className="absolute inset-0 rounded-2xl p-[1px] bg-gradient-to-r from-orange-500 to-red-500 -z-10 opacity-50" />
           )}
 
           <h3 className={clsx(
-            'text-xl font-orbitron mb-2 transition-colors',
-            activeMode === mode.id ? 'text-white' : 'text-gray-400 group-hover:text-white'
+            'text-xl font-orbitron mb-2 transition-colors flex items-center gap-2',
+            activeMode === mode.id ? 'text-orange-500' : 'text-gray-400 group-hover:text-white'
           )}>
+            {activeMode === mode.id && <span className="w-2 h-2 rounded-full bg-orange-500 animate-pulse" />}
             {mode.label}
           </h3>
-          <p className="text-sm text-gray-500 font-rajdhani group-hover:text-gray-400">
+          <p className="text-sm text-gray-500 font-rajdhani group-hover:text-gray-400 leading-relaxed">
             {mode.description}
           </p>
         </button>
