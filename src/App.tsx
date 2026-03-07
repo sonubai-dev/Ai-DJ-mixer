@@ -10,18 +10,16 @@ import { useAudioProcessor } from './hooks/useAudioProcessor';
 import { AudioTrack, RemixMode, RemixSettings } from './types';
 import { audioBufferToWav } from './utils/encodeWAV';
 import { detectBPM } from './utils/bpmDetection';
-import { generateDJTitle, guessBPMFromMetadata, getTrendBasedRemixSettings } from './services/aiService';
-import { Play, Pause, Download, Wand2, Loader2, Save, Sparkles, LayoutDashboard } from 'lucide-react';
+import { generateDJTitle, guessBPMFromMetadata, getTrendBasedRemixSettings, analyzeSongStructure, TrendRemixResponse, SongStructureAnalysis } from './services/aiService';
+import { Play, Pause, Download, Wand2, Loader2, Save, Sparkles, LayoutDashboard, BrainCircuit, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { db, auth } from './firebase';
-import { collection, addDoc } from 'firebase/firestore';
+import { collection, addDoc, doc, getDoc } from 'firebase/firestore';
 import { Dashboard } from './components/Dashboard';
 
-interface ChatMessage {
-  id: string;
-  role: 'user' | 'ai';
-  text: string;
-  timestamp: Date;
+interface UserProfile {
+  uid: string;
+  plan?: 'free' | 'pro' | 'studio';
 }
 
 function App() {
@@ -43,9 +41,15 @@ function App() {
   const [isGeneratingTitle, setIsGeneratingTitle] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isAnalyzingTrends, setIsAnalyzingTrends] = useState(false);
+  const [isAnalyzingStructure, setIsAnalyzingStructure] = useState(false);
   const [detectingBPMId, setDetectingBPMId] = useState<string | null>(null);
   const [currentView, setCurrentView] = useState<'studio' | 'dashboard'>('studio');
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   
+  const [trendResult, setTrendResult] = useState<TrendRemixResponse | null>(null);
+  const [structureAnalysis, setStructureAnalysis] = useState<SongStructureAnalysis | null>(null);
+  const [showAnalysisModal, setShowAnalysisModal] = useState(false);
+
   const { processAudio, isProcessing, processedBuffer, audioContext, decodeAudio } = useAudioProcessor();
   const sourceNodeRef = useRef<AudioBufferSourceNode | null>(null);
   const startTimeRef = useRef<number>(0);
@@ -58,6 +62,23 @@ function App() {
       analyserRef.current.fftSize = 256;
     }
   }, [audioContext]);
+
+  useEffect(() => {
+    const unsubscribe = auth.onAuthStateChanged(async (user) => {
+      if (user) {
+        const docRef = doc(db, 'users', user.uid);
+        const docSnap = await getDoc(docRef);
+        if (docSnap.exists()) {
+          setUserProfile({ uid: user.uid, ...docSnap.data() } as UserProfile);
+        } else {
+          setUserProfile({ uid: user.uid, plan: 'free' });
+        }
+      } else {
+        setUserProfile(null);
+      }
+    });
+    return () => unsubscribe();
+  }, []);
 
   const handleFileUpload = async (files: File[]) => {
     const newTracks = await Promise.all(files.map(async (file) => {
@@ -134,12 +155,8 @@ function App() {
     try {
       // 1. Try Client-side detection first
       if (!track.buffer) {
-        // We need to decode it first if not already decoded
-        // Note: useAudioProcessor exposes decodeAudio but we need to make sure we can use it here
-        // The hook exposes `decodeAudio` which returns AudioBuffer
         const buffer = await decodeAudio(track.file);
         if (buffer) {
-           // Update track with buffer so we don't decode again
            setTracks(prev => prev.map(t => t.id === id ? { ...t, buffer, duration: buffer.duration } : t));
            bpm = await detectBPM(buffer);
         }
@@ -175,23 +192,45 @@ function App() {
     }
     
     setIsAnalyzingTrends(true);
+    setTrendResult(null);
+    setShowAnalysisModal(true);
     
     try {
       const trackData = tracks.map(t => ({ name: t.name, language: t.language }));
-      const result = await getTrendBasedRemixSettings(trackData);
+      const plan = userProfile?.plan || 'free';
+      const result = await getTrendBasedRemixSettings(trackData, plan);
       
       if (result) {
         setActiveMode(result.mode);
         setSettings(result.settings);
-        alert(`AI Trend Analysis:\n\n${result.explanation}`);
+        setTrendResult(result);
       } else {
         alert("Could not analyze trends for this track.");
+        setShowAnalysisModal(false);
       }
     } catch (e) {
       console.error(e);
       alert("Error analyzing trends.");
+      setShowAnalysisModal(false);
     } finally {
       setIsAnalyzingTrends(false);
+    }
+  };
+
+  const handleDeepAnalysis = async () => {
+    if (tracks.length === 0) return;
+    setIsAnalyzingStructure(true);
+    setStructureAnalysis(null);
+    setShowAnalysisModal(true);
+
+    try {
+      const result = await analyzeSongStructure(tracks[0].name);
+      setStructureAnalysis(result);
+    } catch (e) {
+      console.error(e);
+      alert("Analysis failed.");
+    } finally {
+      setIsAnalyzingStructure(false);
     }
   };
 
@@ -307,7 +346,6 @@ function App() {
   const handleLoadPreset = (preset: MixPreset) => {
     setActiveMode(preset.mode);
     setSettings(preset.settings);
-    // We can't load the actual audio files, but we can alert the user
     alert(`Loaded settings for "${preset.name}". \nMode: ${preset.mode}\n\nNote: Original audio files cannot be restored automatically. Please upload tracks to apply these settings.`);
   };
 
@@ -316,7 +354,7 @@ function App() {
   }
 
   return (
-    <div className="min-h-screen bg-black text-white font-rajdhani selection:bg-orange-500 selection:text-white pb-20">
+    <div className="min-h-screen bg-black text-white font-rajdhani selection:bg-orange-500 selection:text-white pb-20 relative">
       {/* Header */}
       <header className="border-b border-white/10 bg-black sticky top-0 z-50 shadow-lg shadow-orange-900/10">
         <div className="container mx-auto px-4 py-4 flex justify-between items-center">
@@ -378,23 +416,33 @@ function App() {
             <div className="bg-gray-900 border border-white/10 rounded-xl p-6">
               <h3 className="text-xl font-orbitron text-white mb-4">Actions</h3>
               
-              <button
-                onClick={handleAutoTrendMix}
-                disabled={tracks.length === 0 || isAnalyzingTrends || isProcessing}
-                className="w-full mb-4 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white py-3 rounded-lg font-orbitron font-bold tracking-widest shadow-[0_0_15px_rgba(124,58,237,0.4)] transition-all flex items-center justify-center space-x-2"
-              >
-                {isAnalyzingTrends ? (
-                  <>
-                    <Loader2 className="animate-spin" size={18} />
-                    <span>ANALYZING TRENDS...</span>
-                  </>
-                ) : (
-                  <>
-                    <Sparkles size={18} />
-                    <span>AUTO-MIX (AI TRENDS)</span>
-                  </>
-                )}
-              </button>
+              <div className="grid grid-cols-2 gap-3 mb-4">
+                <button
+                  onClick={handleAutoTrendMix}
+                  disabled={tracks.length === 0 || isAnalyzingTrends || isProcessing}
+                  className="bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white py-3 rounded-lg font-orbitron font-bold tracking-widest shadow-[0_0_15px_rgba(124,58,237,0.4)] transition-all flex items-center justify-center space-x-2 text-xs sm:text-sm"
+                >
+                  {isAnalyzingTrends ? (
+                    <Loader2 className="animate-spin" size={16} />
+                  ) : (
+                    <Sparkles size={16} />
+                  )}
+                  <span>AUTO TREND</span>
+                </button>
+
+                <button
+                  onClick={handleDeepAnalysis}
+                  disabled={tracks.length === 0 || isAnalyzingStructure}
+                  className="bg-gray-800 hover:bg-gray-700 border border-white/10 text-white py-3 rounded-lg font-orbitron font-bold tracking-widest transition-all flex items-center justify-center space-x-2 text-xs sm:text-sm"
+                >
+                  {isAnalyzingStructure ? (
+                    <Loader2 className="animate-spin" size={16} />
+                  ) : (
+                    <BrainCircuit size={16} />
+                  )}
+                  <span>DEEP SCAN</span>
+                </button>
+              </div>
 
               <button
                 onClick={handleProcess}
@@ -472,6 +520,109 @@ function App() {
         <PresetList onLoadPreset={handleLoadPreset} />
 
       </main>
+
+      {/* Analysis Modal */}
+      <AnimatePresence>
+        {showAnalysisModal && (
+          <motion.div 
+            initial={{ opacity: 0 }} 
+            animate={{ opacity: 1 }} 
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[100] flex items-center justify-center p-4"
+          >
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0 }} 
+              animate={{ scale: 1, opacity: 1 }} 
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-gray-900 border border-orange-500/30 rounded-2xl max-w-lg w-full p-6 shadow-2xl shadow-orange-900/20 relative"
+            >
+              <button 
+                onClick={() => setShowAnalysisModal(false)}
+                className="absolute top-4 right-4 text-gray-400 hover:text-white"
+              >
+                <X size={20} />
+              </button>
+
+              <h3 className="text-2xl font-orbitron text-white mb-6 flex items-center gap-2">
+                <BrainCircuit className="text-orange-500" /> AI Analysis Report
+              </h3>
+
+              {isAnalyzingTrends || isAnalyzingStructure ? (
+                <div className="py-12 flex flex-col items-center justify-center text-gray-400 space-y-4">
+                  <Loader2 className="animate-spin text-orange-500" size={48} />
+                  <p>Analyzing audio patterns & trends...</p>
+                </div>
+              ) : (
+                <div className="space-y-6 max-h-[60vh] overflow-y-auto pr-2 custom-scrollbar">
+                  {trendResult && (
+                    <div className="space-y-4">
+                      <div className="bg-orange-500/10 border border-orange-500/20 rounded-xl p-4">
+                        <div className="flex justify-between items-start mb-2">
+                          <h4 className="text-orange-400 font-bold uppercase tracking-wider text-sm">Trend Strategy</h4>
+                          {trendResult.viralScore && (
+                            <span className="bg-orange-500 text-white text-xs font-bold px-2 py-1 rounded-full">
+                              Viral Score: {trendResult.viralScore}/100
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-white text-lg font-orbitron mb-2 capitalize">{trendResult.mode.replace('-', ' + ')} Mode</p>
+                        <p className="text-gray-300 text-sm leading-relaxed">{trendResult.explanation}</p>
+                      </div>
+                      <div className="text-xs text-gray-500 text-center">
+                        Settings automatically applied to panel.
+                      </div>
+                    </div>
+                  )}
+
+                  {structureAnalysis && (
+                    <div className="space-y-4">
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="bg-gray-800 p-3 rounded-lg">
+                          <p className="text-xs text-gray-500 uppercase">Key</p>
+                          <p className="text-white font-bold">{structureAnalysis.key}</p>
+                        </div>
+                        <div className="bg-gray-800 p-3 rounded-lg">
+                          <p className="text-xs text-gray-500 uppercase">BPM</p>
+                          <p className="text-white font-bold">{structureAnalysis.bpm}</p>
+                        </div>
+                        <div className="bg-gray-800 p-3 rounded-lg">
+                          <p className="text-xs text-gray-500 uppercase">Genre</p>
+                          <p className="text-white font-bold">{structureAnalysis.genre}</p>
+                        </div>
+                        <div className="bg-gray-800 p-3 rounded-lg">
+                          <p className="text-xs text-gray-500 uppercase">Mood</p>
+                          <p className="text-white font-bold">{structureAnalysis.mood}</p>
+                        </div>
+                      </div>
+
+                      <div className="bg-gray-800 p-4 rounded-xl">
+                        <p className="text-xs text-gray-500 uppercase mb-2">Dominant Instruments</p>
+                        <div className="flex flex-wrap gap-2">
+                          {structureAnalysis.instruments.map((inst, i) => (
+                            <span key={i} className="bg-gray-700 text-white text-xs px-2 py-1 rounded-md">{inst}</span>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="bg-gray-800 p-4 rounded-xl">
+                        <p className="text-xs text-gray-500 uppercase mb-2">Remix Suggestions</p>
+                        <ul className="space-y-2">
+                          {structureAnalysis.suggestions.map((sugg, i) => (
+                            <li key={i} className="flex items-start gap-2 text-sm text-gray-300">
+                              <span className="text-orange-500 mt-1">•</span>
+                              {sugg}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

@@ -1,5 +1,5 @@
 /**
- * Detects BPM from an AudioBuffer using a simple peak detection and autocorrelation algorithm.
+ * Detects BPM from an AudioBuffer using an energy-based peak detection algorithm.
  * This is a client-side signal processing approach.
  */
 export async function detectBPM(audioBuffer: AudioBuffer): Promise<number | null> {
@@ -8,10 +8,11 @@ export async function detectBPM(audioBuffer: AudioBuffer): Promise<number | null
     const source = offlineContext.createBufferSource();
     source.buffer = audioBuffer;
     
-    // Lowpass filter to isolate bass/beats
+    // Lowpass filter to isolate bass/beats (kick drum usually drives the tempo)
     const filter = offlineContext.createBiquadFilter();
     filter.type = "lowpass";
     filter.frequency.value = 150;
+    filter.Q.value = 1;
     
     source.connect(filter);
     filter.connect(offlineContext.destination);
@@ -20,33 +21,42 @@ export async function detectBPM(audioBuffer: AudioBuffer): Promise<number | null
     const renderedBuffer = await offlineContext.startRendering();
     const data = renderedBuffer.getChannelData(0);
     
-    // We only need to analyze a subset of the data to save CPU
-    // Let's take 30 seconds from the middle
+    // Analyze a 30-second chunk from the middle of the track for better accuracy
+    // (Intros and outros often have irregular beats)
     const duration = renderedBuffer.duration;
-    const startTime = Math.max(0, duration / 2 - 15);
-    const endTime = Math.min(duration, startTime + 30);
+    const analyzeDuration = 30;
+    const startTime = Math.max(0, duration / 2 - analyzeDuration / 2);
+    const endTime = Math.min(duration, startTime + analyzeDuration);
     const startSample = Math.floor(startTime * renderedBuffer.sampleRate);
     const endSample = Math.floor(endTime * renderedBuffer.sampleRate);
-    const slice = data.slice(startSample, endSample);
-
-    // Find peaks
-    const peaks = getPeaks([slice]);
     
-    // Count intervals
+    // Create a new buffer for the slice to avoid modifying the original
+    const slice = new Float32Array(endSample - startSample);
+    for (let i = 0; i < slice.length; i++) {
+      slice[i] = data[startSample + i];
+    }
+
+    // 1. Calculate Energy Peaks
+    const peaks = getPeaksAtThreshold(slice, renderedBuffer.sampleRate);
+    
+    // 2. Count Intervals between peaks
     const intervals = countIntervals(peaks);
     
-    // Find top tempo
-    const top = intervals.sort((a, b) => b.count - a.count)[0];
+    // 3. Find the most common interval (tempo)
+    const top = intervals.sort((a, b) => b.count - a.count);
     
-    if (!top) return null;
+    if (!top || top.length === 0) return null;
+
+    // Get the top candidate
+    let bestCandidate = top[0];
     
-    // Convert to BPM (approximate)
-    // The interval is in samples. 
+    // Convert to BPM
     // BPM = 60 * sampleRate / interval
-    let bpm = Math.round((60 * renderedBuffer.sampleRate) / top.interval);
+    let bpm = Math.round((60 * renderedBuffer.sampleRate) / bestCandidate.interval);
     
-    // Adjust range to typical music (60-180)
-    while (bpm < 60) bpm *= 2;
+    // 4. Heuristic: Adjust range to typical music (70-180 BPM)
+    // Often detection finds 2x or 0.5x the actual BPM
+    while (bpm < 70) bpm *= 2;
     while (bpm > 180) bpm /= 2;
     
     return Math.round(bpm);
@@ -56,56 +66,61 @@ export async function detectBPM(audioBuffer: AudioBuffer): Promise<number | null
   }
 }
 
-function getPeaks(data: Float32Array[]) {
-  const partSize = 22050;
-  const parts = data[0].length / partSize;
-  let peaks: { position: number; volume: number }[] = [];
-
-  for (let i = 0; i < parts; i++) {
-    let max: { position: number; volume: number } | null = null;
-    for (let j = i * partSize; j < (i + 1) * partSize; j++) {
-      const volume = Math.abs(data[0][j]);
-      if (!max || (volume > max.volume)) {
-        max = {
-          position: j,
-          volume: volume
-        };
-      }
-    }
-    if (max) peaks.push(max);
+function getPeaksAtThreshold(data: Float32Array, sampleRate: number) {
+  const peaks: number[] = [];
+  const threshold = 0.3; // Minimum amplitude to be considered a peak
+  
+  // We process in windows to find local maxima
+  // Window size of 0.25s is roughly a 16th note at 60BPM, good enough for kicks
+  const windowSize = Math.floor(sampleRate / 4); 
+  
+  for (let i = 0; i < data.length; i += 1000) { // Skip some samples for speed
+     let max = 0;
+     let maxPos = 0;
+     
+     // Find local max in this small chunk
+     for(let j=0; j < 1000 && (i+j) < data.length; j++) {
+        const val = Math.abs(data[i+j]);
+        if(val > max) {
+            max = val;
+            maxPos = i+j;
+        }
+     }
+     
+     if(max > threshold) {
+         peaks.push(maxPos);
+     }
   }
-
-  peaks.sort((a, b) => b.volume - a.volume);
-  peaks = peaks.splice(0, peaks.length * 0.5);
-  peaks.sort((a, b) => a.position - b.position);
-
+  
   return peaks;
 }
 
-function countIntervals(peaks: any[]) {
+function countIntervals(peaks: number[]) {
   const groups: { interval: number, count: number }[] = [];
-
+  
+  // Look for consistent intervals between peaks
   peaks.forEach((peak, index) => {
-    for (let i = 1; i < 10; i++) {
-      const interval = peaks[index + i];
-      if (!interval) break;
+    for (let i = 1; i < 10; i++) { // Look at next 10 peaks
+      const nextPeak = peaks[index + i];
+      if (!nextPeak) break;
 
-      const diff = interval.position - peak.position;
-      const found = groups.some(group => {
-        if (Math.abs(group.interval - diff) < 5) {
-          group.count++;
-          return true;
-        }
-        return false;
-      });
-
-      if (!found) {
+      const interval = nextPeak - peak;
+      
+      // Check if this interval matches an existing group
+      const found = groups.find(group => Math.abs(group.interval - interval) < 100); // Allow small jitter
+      
+      if (found) {
+        found.count++;
+        // Average the interval for better accuracy
+        found.interval = (found.interval * found.count + interval) / (found.count + 1);
+      } else {
         groups.push({
-          interval: diff,
+          interval: interval,
           count: 1
         });
       }
     }
   });
+  
   return groups;
 }

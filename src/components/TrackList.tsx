@@ -74,7 +74,7 @@ export function TrackList({ tracks, onRemoveTrack, onUpdateLanguage, onDetectBPM
                     </div>
                   ) : (
                     <>
-                      <span className="text-blue-200">{(track.duration || 0).toFixed(1)}s</span>
+                      <span className="text-blue-200">Duration: {Math.round(track.duration || 0)}s</span>
                       <span className="text-gray-500">•</span>
                       <span className="text-blue-200">{((track.file.size || 0) / 1024 / 1024).toFixed(2)} MB</span>
                     </>

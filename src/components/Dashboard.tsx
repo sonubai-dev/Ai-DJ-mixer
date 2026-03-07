@@ -95,14 +95,78 @@ export function Dashboard({ onBack }: DashboardProps) {
 
   const handleUpgrade = async (plan: 'pro' | 'studio') => {
     if (!auth.currentUser) return;
+    
+    const amount = plan === 'pro' ? 5 : 15;
+    const planName = plan.toUpperCase();
+
     try {
-      const userRef = doc(db, 'users', auth.currentUser.uid);
-      await updateDoc(userRef, { plan });
-      setProfile(prev => prev ? { ...prev, plan } : null);
-      alert(`Successfully upgraded to ${plan.toUpperCase()} plan!`);
+      // 1. Create Order on Backend
+      const orderResponse = await fetch('/api/payments/order', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          amount,
+          currency: 'USD',
+          receipt: `receipt_${auth.currentUser.uid}_${Date.now()}`
+        })
+      });
+
+      if (!orderResponse.ok) throw new Error('Failed to create payment order');
+      const order = await orderResponse.json();
+
+      // 2. Initialize Razorpay Checkout
+      const options = {
+        key: (import.meta.env.VITE_RAZORPAY_KEY_ID as string) || '', // Public Key
+        amount: order.amount,
+        currency: order.currency,
+        name: "Indian Remix Studio",
+        description: `Upgrade to ${planName} Plan`,
+        order_id: order.id,
+        handler: async (response: any) => {
+          // 3. Verify Payment on Backend
+          const verifyResponse = await fetch('/api/payments/verify', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              razorpay_order_id: response.razorpay_order_id,
+              razorpay_payment_id: response.razorpay_payment_id,
+              razorpay_signature: response.razorpay_signature
+            })
+          });
+
+          const verifyData = await verifyResponse.json();
+          if (verifyData.success) {
+            // 4. Update User Plan in Firestore
+            const userRef = doc(db, 'users', auth.currentUser!.uid);
+            await updateDoc(userRef, { plan });
+            setProfile(prev => prev ? { ...prev, plan } : null);
+            alert(`Successfully upgraded to ${planName} plan!`);
+          } else {
+            alert('Payment verification failed. Please contact support.');
+          }
+        },
+        prefill: {
+          name: profile?.displayName || '',
+          email: profile?.email || '',
+        },
+        theme: {
+          color: "#f97316",
+        },
+      };
+
+      // Load Razorpay script dynamically
+      const script = document.createElement('script');
+      script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+      script.async = true;
+      script.onload = () => {
+        const rzp = new (window as any).Razorpay(options);
+        rzp.open();
+      };
+      document.body.appendChild(script);
+
     } catch (error) {
       console.error("Error upgrading plan:", error);
-      alert('Failed to upgrade plan.');
+      alert('Failed to initiate payment. Please try again.');
     }
   };
 
@@ -110,7 +174,7 @@ export function Dashboard({ onBack }: DashboardProps) {
     { id: 'history', label: 'Mix History', icon: History },
     { id: 'plans', label: 'Plans & Pricing', icon: CreditCard },
     { id: 'policies', label: 'Policies & Copyright', icon: Shield },
-    { id: 'profile', label: 'Profile & Earnings', icon: User },
+    { id: 'profile', label: 'Profile', icon: User },
   ];
 
   return (
@@ -151,12 +215,6 @@ export function Dashboard({ onBack }: DashboardProps) {
                 <div>
                   <p className="text-2xl font-orbitron text-white">{mixes.length}</p>
                   <p className="text-xs text-gray-500">Total Mixes Created</p>
-                </div>
-                <div>
-                  <p className="text-2xl font-orbitron text-orange-500">
-                    {profile?.plan === 'studio' ? '$1,240.50' : profile?.plan === 'pro' ? '$450.00' : '$0.00'}
-                  </p>
-                  <p className="text-xs text-gray-500">Estimated Earnings</p>
                 </div>
               </div>
             </div>
@@ -243,7 +301,7 @@ export function Dashboard({ onBack }: DashboardProps) {
                         {profile?.plan === 'pro' && <div className="absolute top-0 right-0 bg-orange-500 text-white text-xs font-bold px-3 py-1 rounded-bl-lg">ACTIVE</div>}
                         <div className="mb-4">
                           <h4 className="text-xl font-orbitron text-orange-400">Pro Creator</h4>
-                          <p className="text-3xl font-bold text-white mt-2">$19<span className="text-sm text-gray-500 font-normal">/mo</span></p>
+                          <p className="text-3xl font-bold text-white mt-2">$5<span className="text-sm text-gray-500 font-normal">/mo</span></p>
                         </div>
                         <ul className="space-y-3 mb-8 flex-1">
                           <li className="flex items-center gap-2 text-sm text-white"><CheckCircle2 size={16} className="text-orange-500" /> Unlimited Remixes</li>
@@ -263,7 +321,7 @@ export function Dashboard({ onBack }: DashboardProps) {
                         {profile?.plan === 'studio' && <div className="absolute top-0 right-0 bg-orange-500 text-white text-xs font-bold px-3 py-1 rounded-bl-lg">ACTIVE</div>}
                         <div className="mb-4">
                           <h4 className="text-xl font-orbitron text-purple-400">Studio Elite</h4>
-                          <p className="text-3xl font-bold text-white mt-2">$49<span className="text-sm text-gray-500 font-normal">/mo</span></p>
+                          <p className="text-3xl font-bold text-white mt-2">$15<span className="text-sm text-gray-500 font-normal">/mo</span></p>
                         </div>
                         <ul className="space-y-3 mb-8 flex-1">
                           <li className="flex items-center gap-2 text-sm text-white"><CheckCircle2 size={16} className="text-purple-500" /> Everything in Pro</li>
@@ -332,7 +390,7 @@ export function Dashboard({ onBack }: DashboardProps) {
                 {activeTab === 'profile' && (
                   <div className="space-y-8">
                     <h3 className="text-2xl font-orbitron text-white mb-6 flex items-center gap-2">
-                      <User className="text-orange-500" /> Profile & Earnings
+                      <User className="text-orange-500" /> Profile
                     </h3>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
@@ -370,40 +428,6 @@ export function Dashboard({ onBack }: DashboardProps) {
                             {isSavingProfile ? 'Saving...' : 'Save Profile'}
                           </button>
                         </div>
-                      </div>
-
-                      <div className="bg-black/40 border border-white/10 rounded-xl p-6">
-                        <h4 className="text-lg font-bold text-white mb-6 flex items-center gap-2">
-                          <DollarSign className="text-green-500" /> Earnings Overview
-                        </h4>
-                        
-                        <div className="bg-gray-900 rounded-xl p-6 mb-6 text-center border border-white/5">
-                          <p className="text-sm text-gray-400 mb-1">Total Revenue</p>
-                          <p className="text-4xl font-orbitron text-white">$1,240.50</p>
-                          <div className="flex items-center justify-center gap-2 mt-2 text-green-400 text-sm">
-                            <BarChart3 size={14} />
-                            <span>+12.5% this month</span>
-                          </div>
-                        </div>
-
-                        <div className="space-y-3">
-                          <div className="flex justify-between items-center text-sm p-3 bg-white/5 rounded-lg">
-                            <span className="text-gray-400">Remix Royalties</span>
-                            <span className="text-white font-bold">$850.00</span>
-                          </div>
-                          <div className="flex justify-between items-center text-sm p-3 bg-white/5 rounded-lg">
-                            <span className="text-gray-400">Streaming</span>
-                            <span className="text-white font-bold">$320.50</span>
-                          </div>
-                          <div className="flex justify-between items-center text-sm p-3 bg-white/5 rounded-lg">
-                            <span className="text-gray-400">Tips</span>
-                            <span className="text-white font-bold">$70.00</span>
-                          </div>
-                        </div>
-
-                        <button className="w-full mt-6 border border-white/10 hover:bg-white/5 text-gray-300 py-3 rounded-lg transition-colors text-sm font-bold">
-                          View Detailed Report
-                        </button>
                       </div>
                     </div>
                   </div>
