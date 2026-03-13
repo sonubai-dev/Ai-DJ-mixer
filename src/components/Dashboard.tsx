@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
-import { db, auth } from '../firebase';
-import { collection, query, where, onSnapshot, doc, updateDoc, getDoc } from 'firebase/firestore';
+import { supabase } from '../supabase';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   History, 
@@ -40,49 +39,67 @@ export function Dashboard({ onBack }: DashboardProps) {
   const [isSavingProfile, setIsSavingProfile] = useState(false);
 
   useEffect(() => {
-    const user = auth.currentUser;
-    if (!user) return;
+    const fetchDashboardData = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      const user = session?.user;
+      if (!user) return;
 
-    // Fetch User Profile
-    const fetchProfile = async () => {
-      const docRef = doc(db, 'users', user.uid);
-      const docSnap = await getDoc(docRef);
-      if (docSnap.exists()) {
-        const data = docSnap.data() as UserProfile;
-        setProfile(data);
-        setArtistNameInput(data.artistName || '');
+      // Fetch User Profile
+      const { data: profileData } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', user.id)
+        .single();
+        
+      if (profileData) {
+        setProfile({ uid: profileData.id, ...profileData });
+        setArtistNameInput(profileData.artistName || '');
       }
-    };
-    fetchProfile();
 
-    // Fetch Mix History
-    const q = query(
-      collection(db, 'mixes'),
-      where('userId', '==', user.uid)
-    );
-
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const loadedMixes = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      })) as MixPreset[];
-      
-      loadedMixes.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-      setMixes(loadedMixes);
+      // Fetch Mix History
+      const { data: mixesData } = await supabase
+        .from('mixes')
+        .select('*')
+        .eq('userId', user.id)
+        .order('createdAt', { ascending: false });
+        
+      if (mixesData) {
+        setMixes(mixesData as MixPreset[]);
+      }
       setLoading(false);
+    };
+
+    fetchDashboardData();
+
+    // Set up realtime subscription for mixes
+    let channel: any;
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) {
+        channel = supabase
+          .channel('public:mixes')
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'mixes', filter: `userId=eq.${session.user.id}` }, () => {
+            fetchDashboardData();
+          })
+          .subscribe();
+      }
     });
 
-    return () => unsubscribe();
+    return () => {
+      if (channel) supabase.removeChannel(channel);
+    };
   }, []);
 
   const handleSaveProfile = async () => {
-    if (!auth.currentUser) return;
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.user) return;
+    
     setIsSavingProfile(true);
     try {
-      const userRef = doc(db, 'users', auth.currentUser.uid);
-      await updateDoc(userRef, {
-        artistName: artistNameInput
-      });
+      await supabase
+        .from('users')
+        .update({ artistName: artistNameInput })
+        .eq('id', session.user.id);
+        
       setProfile(prev => prev ? { ...prev, artistName: artistNameInput } : null);
       alert('Profile updated successfully!');
     } catch (error) {
@@ -94,7 +111,8 @@ export function Dashboard({ onBack }: DashboardProps) {
   };
 
   const handleUpgrade = async (plan: 'pro' | 'studio') => {
-    if (!auth.currentUser) return;
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.user) return;
     
     const amount = plan === 'pro' ? 5 : 15;
     const planName = plan.toUpperCase();
@@ -107,7 +125,7 @@ export function Dashboard({ onBack }: DashboardProps) {
         body: JSON.stringify({
           amount,
           currency: 'USD',
-          receipt: `receipt_${auth.currentUser.uid}_${Date.now()}`
+          receipt: `receipt_${session.user.id}_${Date.now()}`
         })
       });
 
@@ -136,9 +154,12 @@ export function Dashboard({ onBack }: DashboardProps) {
 
           const verifyData = await verifyResponse.json();
           if (verifyData.success) {
-            // 4. Update User Plan in Firestore
-            const userRef = doc(db, 'users', auth.currentUser!.uid);
-            await updateDoc(userRef, { plan });
+            // 4. Update User Plan in Supabase
+            await supabase
+              .from('users')
+              .update({ plan })
+              .eq('id', session.user.id);
+              
             setProfile(prev => prev ? { ...prev, plan } : null);
             alert(`Successfully upgraded to ${planName} plan!`);
           } else {

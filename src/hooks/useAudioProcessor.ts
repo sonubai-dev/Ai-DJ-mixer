@@ -83,11 +83,45 @@ export function useAudioProcessor() {
       source.buffer = track.buffer;
 
       if (isSlowed) {
-        source.playbackRate.value = settings.slowFactor / 100;
+        // Natural pitch drop with speed reduction (8-15% slower)
+        const slowFactor = Math.max(0.85, Math.min(0.92, settings.slowFactor / 100));
+        source.playbackRate.value = slowFactor;
       }
 
+      // --- MASTERING CHAIN (Professional Polish) ---
+      const highEndBoost = offlineCtx.createBiquadFilter();
+      highEndBoost.type = 'peaking';
+      highEndBoost.frequency.value = 10000; // 8k-12k range
+      highEndBoost.gain.value = 1.5; // Gentle boost
+      highEndBoost.Q.value = 0.7;
+
+      const lowEndTighten = offlineCtx.createBiquadFilter();
+      lowEndTighten.type = 'peaking';
+      lowEndTighten.frequency.value = 275; // 200-350Hz range
+      lowEndTighten.gain.value = -2.5; // Reduce muddy frequencies
+      lowEndTighten.Q.value = 1.2;
+
+      const vocalPresence = offlineCtx.createBiquadFilter();
+      vocalPresence.type = 'peaking';
+      vocalPresence.frequency.value = 4000; // 3k-5k range
+      vocalPresence.gain.value = 2.0; // Smooth enhancement
+      vocalPresence.Q.value = 1.0;
+
+      const limiter = offlineCtx.createDynamicsCompressor();
+      limiter.threshold.value = -0.8; // Target -0.8dB peak
+      limiter.knee.value = 0;
+      limiter.ratio.value = 20;
+      limiter.attack.value = 0.003;
+      limiter.release.value = 0.1;
+
       const masterGain = offlineCtx.createGain();
-      masterGain.gain.value = 0.9; 
+      masterGain.gain.value = 1.0; 
+
+      // Connect Mastering Chain
+      highEndBoost.connect(lowEndTighten);
+      lowEndTighten.connect(vocalPresence);
+      vocalPresence.connect(limiter);
+      limiter.connect(masterGain);
       masterGain.connect(offlineCtx.destination);
 
       // Track the end of the signal chain
@@ -147,8 +181,8 @@ export function useAudioProcessor() {
         // Connect to Echo (Send)
         currentChainNode.connect(delay);
         
-        // Echo return to Master (Parallel)
-        delay.connect(masterGain);
+        // Echo return to Mastering Chain (Parallel)
+        delay.connect(highEndBoost);
       }
 
       // --- REVERB (Send) ---
@@ -156,23 +190,24 @@ export function useAudioProcessor() {
       if (isSlowed || isSpatial) {
         const convolver = offlineCtx.createConvolver();
         
-        // Reverb Settings
-        // If Slowed, use user settings. If Spatial only, use defaults.
-        const reverbSize = isSlowed ? settings.reverbSize : 2.5;
-        const reverbWet = isSlowed ? settings.reverbWet : 20;
+        // Reverb Settings - Studio Plate Style
+        const reverbSize = isSlowed ? Math.min(settings.reverbSize, 3.5) : 1.8;
+        const reverbWet = isSlowed ? settings.reverbWet : 15;
 
-        // Generate Impulse Response
+        // Generate Plate Impulse Response
         const rate = offlineCtx.sampleRate;
         const length = rate * reverbSize;
-        const decay = 2.0;
+        const decay = 3.0;
         const impulse = offlineCtx.createBuffer(2, length, rate);
         const impulseL = impulse.getChannelData(0);
         const impulseR = impulse.getChannelData(1);
         
         for (let i = 0; i < length; i++) {
           const power = Math.pow(1 - i / length, decay);
-          impulseL[i] = (Math.random() * 2 - 1) * power;
-          impulseR[i] = (Math.random() * 2 - 1) * power;
+          // Add some "plate" density
+          const noise = (Math.random() * 2 - 1);
+          impulseL[i] = noise * power * (0.8 + Math.sin(i * 0.01) * 0.2);
+          impulseR[i] = noise * power * (0.8 + Math.cos(i * 0.01) * 0.2);
         }
         convolver.buffer = impulse;
 
@@ -182,7 +217,12 @@ export function useAudioProcessor() {
         // Connect Reverb (Send)
         currentChainNode.connect(convolver);
         convolver.connect(wetGain);
-        wetGain.connect(masterGain);
+        wetGain.connect(highEndBoost); // Connect to start of mastering chain
+      }
+
+      // Final connection to mastering chain if not already connected via effects
+      if (!isSpatial) {
+        currentChainNode.connect(highEndBoost);
       }
 
       // --- SPATIAL PANNER (Insert) ---
@@ -212,10 +252,7 @@ export function useAudioProcessor() {
         panner.pan.setValueCurveAtTime(panValues, 0, totalTime);
         
         currentChainNode.connect(panner);
-        panner.connect(masterGain);
-      } else {
-        // No spatial, just connect to master
-        currentChainNode.connect(masterGain);
+        panner.connect(highEndBoost); // Connect to mastering chain
       }
 
       source.start(0);

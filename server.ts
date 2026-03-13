@@ -7,12 +7,40 @@ import fs from 'fs';
 import path from 'path';
 import Razorpay from 'razorpay';
 import crypto from 'crypto';
+import Database from 'better-sqlite3';
 
 const app = express();
 const PORT = 3000;
 
 app.use(cors());
 app.use(express.json());
+
+// Set up a quirky SQLite database
+const db = new Database('quirky_dj.db');
+db.exec(`
+  CREATE TABLE IF NOT EXISTS quirky_facts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    fact TEXT NOT NULL,
+    weirdness_level INTEGER NOT NULL
+  );
+`);
+
+// Seed some quirky facts if empty
+const count = db.prepare('SELECT COUNT(*) as count FROM quirky_facts').get() as { count: number };
+if (count.count === 0) {
+  const insert = db.prepare('INSERT INTO quirky_facts (fact, weirdness_level) VALUES (?, ?)');
+  insert.run('The first DJ mixer was just two turntables and a microphone taped together.', 8);
+  insert.run('Some DJs use vinyl records made of actual chocolate.', 10);
+  insert.run('A 120 BPM track syncs perfectly with the average human walking pace.', 5);
+  insert.run('Skrillex accidentally created his signature bass drop by dropping his laptop.', 9);
+  insert.run('The longest DJ set ever lasted 240 hours. The DJ hallucinated that the crowd was made of pizza.', 11);
+}
+
+// API Routes
+app.get('/api/quirky-facts', (req, res) => {
+  const facts = db.prepare('SELECT * FROM quirky_facts ORDER BY RANDOM() LIMIT 1').get();
+  res.json(facts);
+});
 
 // Multer setup for file uploads (if needed for temporary storage)
 const upload = multer({ dest: 'uploads/' });

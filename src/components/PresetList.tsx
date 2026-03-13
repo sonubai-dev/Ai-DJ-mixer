@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
-import { db, auth } from '../firebase';
-import { collection, query, where, onSnapshot, deleteDoc, doc } from 'firebase/firestore';
+import { supabase } from '../supabase';
 import { RemixSettings, RemixMode } from '../types';
 import { Trash2, Play, Settings, Save } from 'lucide-react';
 
@@ -20,13 +19,18 @@ interface PresetListProps {
 export function PresetList({ onLoadPreset }: PresetListProps) {
   const [presets, setPresets] = useState<MixPreset[]>([]);
   const [loading, setLoading] = useState(true);
-  const [user, setUser] = useState(auth.currentUser);
+  const [user, setUser] = useState<any>(null);
 
   useEffect(() => {
-    const unsubscribeAuth = auth.onAuthStateChanged((u) => {
-      setUser(u);
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null);
     });
-    return () => unsubscribeAuth();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+    });
+
+    return () => subscription.unsubscribe();
   }, []);
 
   useEffect(() => {
@@ -36,30 +40,37 @@ export function PresetList({ onLoadPreset }: PresetListProps) {
       return;
     }
 
-    const q = query(
-      collection(db, 'mixes'),
-      where('userId', '==', user.uid)
-    );
+    const fetchPresets = async () => {
+      const { data, error } = await supabase
+        .from('mixes')
+        .select('*')
+        .eq('userId', user.id)
+        .order('createdAt', { ascending: false });
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const loadedPresets = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      })) as MixPreset[];
-      
-      // Sort client-side to avoid index requirement
-      loadedPresets.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-      
-      setPresets(loadedPresets);
+      if (data) {
+        setPresets(data as MixPreset[]);
+      }
       setLoading(false);
-    });
+    };
 
-    return () => unsubscribe();
+    fetchPresets();
+
+    // Subscribe to realtime changes
+    const channel = supabase
+      .channel('public:mixes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'mixes', filter: `userId=eq.${user.id}` }, payload => {
+        fetchPresets();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [user]);
 
   const handleDelete = async (id: string) => {
     if (confirm('Are you sure you want to delete this preset?')) {
-      await deleteDoc(doc(db, 'mixes', id));
+      await supabase.from('mixes').delete().eq('id', id);
     }
   };
 

@@ -6,6 +6,7 @@ import { SettingsPanel } from './components/SettingsPanel';
 import { Visualizer } from './components/Visualizer';
 import { AuthButton } from './components/AuthButton';
 import { PresetList, MixPreset } from './components/PresetList';
+import { MusicPlayer } from './components/MusicPlayer';
 import { useAudioProcessor } from './hooks/useAudioProcessor';
 import { AudioTrack, RemixMode, RemixSettings } from './types';
 import { audioBufferToWav } from './utils/encodeWAV';
@@ -13,8 +14,7 @@ import { detectBPM } from './utils/bpmDetection';
 import { generateDJTitle, guessBPMFromMetadata, getTrendBasedRemixSettings, analyzeSongStructure, TrendRemixResponse, SongStructureAnalysis } from './services/aiService';
 import { Play, Pause, Download, Wand2, Loader2, Save, Sparkles, LayoutDashboard, BrainCircuit, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { db, auth } from './firebase';
-import { collection, addDoc, doc, getDoc } from 'firebase/firestore';
+import { supabase } from './supabase';
 import { Dashboard } from './components/Dashboard';
 
 interface UserProfile {
@@ -51,9 +51,6 @@ function App() {
   const [showAnalysisModal, setShowAnalysisModal] = useState(false);
 
   const { processAudio, isProcessing, processedBuffer, audioContext, decodeAudio } = useAudioProcessor();
-  const sourceNodeRef = useRef<AudioBufferSourceNode | null>(null);
-  const startTimeRef = useRef<number>(0);
-  const pauseTimeRef = useRef<number>(0);
   const analyserRef = useRef<AnalyserNode | null>(null);
 
   useEffect(() => {
@@ -64,20 +61,39 @@ function App() {
   }, [audioContext]);
 
   useEffect(() => {
-    const unsubscribe = auth.onAuthStateChanged(async (user) => {
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
+      const user = session?.user;
       if (user) {
-        const docRef = doc(db, 'users', user.uid);
-        const docSnap = await getDoc(docRef);
-        if (docSnap.exists()) {
-          setUserProfile({ uid: user.uid, ...docSnap.data() } as UserProfile);
+        const { data } = await supabase.from('users').select('*').eq('id', user.id).single();
+        if (data) {
+          setUserProfile({ uid: user.id, ...data });
         } else {
-          setUserProfile({ uid: user.uid, plan: 'free' });
+          const newProfile = { id: user.id, email: user.email, plan: 'free' };
+          await supabase.from('users').insert([newProfile]);
+          setUserProfile({ uid: user.id, plan: 'free' });
         }
       } else {
         setUserProfile(null);
       }
     });
-    return () => unsubscribe();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      const user = session?.user;
+      if (user) {
+        const { data } = await supabase.from('users').select('*').eq('id', user.id).single();
+        if (data) {
+          setUserProfile({ uid: user.id, ...data });
+        } else {
+          const newProfile = { id: user.id, email: user.email, plan: 'free' };
+          await supabase.from('users').upsert([newProfile]);
+          setUserProfile({ uid: user.id, plan: 'free' });
+        }
+      } else {
+        setUserProfile(null);
+      }
+    });
+
+    return () => subscription.unsubscribe();
   }, []);
 
   const handleFileUpload = async (files: File[]) => {
@@ -237,58 +253,12 @@ function App() {
   const handleProcess = async () => {
     if (tracks.length === 0) return;
     
-    // Stop current playback
-    stopPlayback();
-
     try {
       await processAudio(tracks, activeMode, settings);
     } catch (error) {
       console.error(error);
       alert('Processing failed');
     }
-  };
-
-  const playAudio = () => {
-    if (!processedBuffer || !audioContext) return;
-
-    if (isPlaying) {
-      // Pause
-      stopPlayback();
-      pauseTimeRef.current = audioContext.currentTime - startTimeRef.current;
-      setIsPlaying(false);
-    } else {
-      // Play
-      const source = audioContext.createBufferSource();
-      source.buffer = processedBuffer;
-      
-      if (analyserRef.current) {
-        source.connect(analyserRef.current);
-        analyserRef.current.connect(audioContext.destination);
-      } else {
-        source.connect(audioContext.destination);
-      }
-      
-      source.start(0, pauseTimeRef.current % processedBuffer.duration);
-      startTimeRef.current = audioContext.currentTime - (pauseTimeRef.current % processedBuffer.duration);
-      
-      sourceNodeRef.current = source;
-      setIsPlaying(true);
-      
-      source.onended = () => {
-        setIsPlaying(false);
-        pauseTimeRef.current = 0;
-      };
-    }
-  };
-
-  const stopPlayback = () => {
-    if (sourceNodeRef.current) {
-      try {
-        sourceNodeRef.current.stop();
-      } catch (e) { /* ignore */ }
-      sourceNodeRef.current = null;
-    }
-    setIsPlaying(false);
   };
 
   const handleDownload = () => {
@@ -316,7 +286,8 @@ function App() {
   };
 
   const handleSaveMix = async () => {
-    if (!auth.currentUser) {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.user) {
       alert('Please sign in to save mixes');
       return;
     }
@@ -326,14 +297,13 @@ function App() {
     
     setIsSaving(true);
     try {
-      await addDoc(collection(db, 'mixes'), {
-        userId: auth.currentUser.uid,
+      await supabase.from('mixes').insert([{
+        userId: session.user.id,
         name: name,
         mode: activeMode,
         settings,
-        tracks: tracks.map(t => ({ name: t.name, language: t.language || 'Unknown' })),
-        createdAt: new Date().toISOString()
-      });
+        tracks: tracks.map(t => ({ name: t.name, language: t.language || 'Unknown' }))
+      }]);
       alert('Mix preset saved successfully!');
     } catch (error) {
       console.error('Error saving mix:', error);
@@ -459,24 +429,17 @@ function App() {
                 )}
               </button>
 
-              {processedBuffer && (
+              {processedBuffer && audioContext && (
                 <div className="space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
-                  <div className="flex space-x-2">
-                    <button
-                      onClick={playAudio}
-                      className="flex-1 bg-white/10 hover:bg-white/20 text-white py-3 rounded-lg font-orbitron flex items-center justify-center space-x-2 transition-colors"
-                    >
-                      {isPlaying ? <Pause size={20} /> : <Play size={20} />}
-                      <span>{isPlaying ? 'PAUSE' : 'PLAY'}</span>
-                    </button>
-                    <button
-                      onClick={handleDownload}
-                      className="flex-1 bg-white/10 hover:bg-white/20 text-white py-3 rounded-lg font-orbitron flex items-center justify-center space-x-2 transition-colors"
-                    >
-                      <Download size={20} />
-                      <span>SAVE WAV</span>
-                    </button>
-                  </div>
+                  <MusicPlayer
+                    audioContext={audioContext}
+                    processedBuffer={processedBuffer}
+                    analyserNode={analyserRef.current}
+                    onDownload={handleDownload}
+                    onPlayStateChange={setIsPlaying}
+                    isProcessing={isProcessing}
+                    trackTitle={generatedTitle || (tracks.length > 0 ? `${tracks[0].name} (${activeMode} mix)` : 'Custom Mix')}
+                  />
 
                   <div className="pt-4 border-t border-white/10 space-y-2">
                     <button
@@ -487,11 +450,6 @@ function App() {
                       <Wand2 size={14} />
                       <span>{isGeneratingTitle ? 'Generating...' : 'Generate AI Title'}</span>
                     </button>
-                    {generatedTitle && (
-                      <p className="text-center text-orange-400 font-orbitron mt-2 text-lg">
-                        {generatedTitle}
-                      </p>
-                    )}
                     
                     <button
                       onClick={handleSaveMix}
