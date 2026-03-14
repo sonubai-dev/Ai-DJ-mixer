@@ -36,8 +36,8 @@ export function Visualizer({ analyser, isPlaying }: VisualizerProps) {
         barHeight = (dataArray[i] / 255) * height;
 
         const gradient = ctx.createLinearGradient(0, height, 0, 0);
-        gradient.addColorStop(0, '#FF6B1A'); // Orange
-        gradient.addColorStop(1, '#FF3CAC'); // Pink
+        gradient.addColorStop(0, '#7C3AED'); // Primary (Purple)
+        gradient.addColorStop(1, '#22D3EE'); // Accent (Cyan)
 
         ctx.fillStyle = gradient;
         ctx.fillRect(x, height - barHeight, barWidth, barHeight);
@@ -60,7 +60,7 @@ export function Visualizer({ analyser, isPlaying }: VisualizerProps) {
       ref={canvasRef} 
       width={800} 
       height={200} 
-      className="w-full h-48 bg-black/50 rounded-xl border border-white/10"
+      className="w-full h-48 bg-bg/50 rounded-xl border border-white/10"
     />
   );
 }

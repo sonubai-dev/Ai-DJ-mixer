@@ -147,13 +147,13 @@ export function MusicPlayer({ audioContext, processedBuffer, analyserNode, onDow
   };
 
   return (
-    <div className="bg-gray-900 border border-white/10 rounded-xl p-5 space-y-5 shadow-lg shadow-black/50">
+    <div className="bg-secondary border border-white/10 rounded-xl p-5 space-y-5 shadow-lg shadow-black/50">
       {/* Track Display */}
       <div className="text-center space-y-1">
-        <h4 className="text-orange-400 font-orbitron font-bold truncate px-2" title={trackTitle || 'Custom Mix'}>
+        <h4 className="text-primary font-display font-bold truncate px-2" title={trackTitle || 'Custom Mix'}>
           {trackTitle || 'Custom Mix'}
         </h4>
-        <p className="text-xs text-gray-500 font-rajdhani uppercase tracking-widest">
+        <p className="text-xs text-gray-500 font-sans uppercase tracking-widest">
           {isPlaying ? 'Now Playing' : 'Ready to Play'}
         </p>
       </div>
@@ -167,7 +167,7 @@ export function MusicPlayer({ audioContext, processedBuffer, analyserNode, onDow
           step="0.01"
           value={currentTime}
           onChange={handleSeek}
-          className="w-full h-1.5 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-orange-500 hover:accent-orange-400 transition-all"
+          className="w-full h-1.5 bg-bg rounded-lg appearance-none cursor-pointer accent-primary hover:accent-primary/80 transition-all"
         />
         <div className="flex justify-between text-xs text-gray-400 font-mono">
           <span>{formatTime(currentTime)}</span>
@@ -189,7 +189,7 @@ export function MusicPlayer({ audioContext, processedBuffer, analyserNode, onDow
             step="0.01"
             value={isMuted ? 0 : volume}
             onChange={handleVolumeChange}
-            className="w-20 h-1.5 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-orange-500 hover:accent-orange-400"
+            className="w-20 h-1.5 bg-bg rounded-lg appearance-none cursor-pointer accent-primary hover:accent-primary/80"
           />
         </div>
 
@@ -197,7 +197,7 @@ export function MusicPlayer({ audioContext, processedBuffer, analyserNode, onDow
         <div className="flex justify-center w-1/3">
           <button
             onClick={togglePlayPause}
-            className="w-14 h-14 bg-gradient-to-br from-orange-500 to-orange-600 hover:from-orange-400 hover:to-orange-500 text-white rounded-full flex items-center justify-center shadow-[0_0_20px_rgba(234,88,12,0.3)] hover:shadow-[0_0_25px_rgba(234,88,12,0.5)] transition-all transform hover:scale-105 active:scale-95"
+            className="w-14 h-14 bg-gradient-to-br from-primary to-accent hover:from-primary/90 hover:to-accent/90 text-white rounded-full flex items-center justify-center shadow-[0_0_20px_rgba(124,58,237,0.3)] hover:shadow-[0_0_25px_rgba(124,58,237,0.5)] transition-all transform hover:scale-105 active:scale-95"
           >
             {isPlaying ? <Pause size={24} className="fill-current" /> : <Play size={24} className="fill-current ml-1" />}
           </button>
@@ -207,7 +207,7 @@ export function MusicPlayer({ audioContext, processedBuffer, analyserNode, onDow
         <div className="flex justify-end w-1/3">
           <button
             onClick={onDownload}
-            className="flex items-center space-x-2 px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 hover:border-white/20 text-white rounded-lg transition-all text-sm font-orbitron tracking-wider"
+            className="flex items-center space-x-2 px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 hover:border-white/20 text-white rounded-lg transition-all text-sm font-sans font-bold tracking-wider"
           >
             <Download size={16} />
             <span className="hidden sm:inline">SAVE WAV</span>

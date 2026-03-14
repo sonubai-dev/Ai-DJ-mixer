@@ -3,7 +3,7 @@ export interface AudioTrack {
   file: File | Blob;
   name: string;
   duration: number;
-  language?: string;
+  genre?: string;
   buffer?: AudioBuffer;
   bpm?: number;
   status?: 'uploaded' | 'searching' | 'ready' | 'error';

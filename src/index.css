@@ -1,7 +1,18 @@
-@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;700;900&family=Rajdhani:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap');
 @import "tailwindcss";
 
 @theme {
-  --font-orbitron: 'Orbitron', sans-serif;
-  --font-rajdhani: 'Rajdhani', sans-serif;
+  --font-sans: 'Inter', sans-serif;
+  --font-display: 'Space Grotesk', sans-serif;
+  
+  --color-bg: #0B0B0B;
+  --color-primary: #7C3AED;
+  --color-accent: #22D3EE;
+  --color-secondary: #1F1F1F;
+}
+
+body {
+  background-color: var(--color-bg);
+  color: #ffffff;
+  font-family: var(--font-sans);
 }

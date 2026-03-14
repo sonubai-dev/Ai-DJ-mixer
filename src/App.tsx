@@ -4,7 +4,7 @@ import { TrackList } from './components/TrackList';
 import { ModeSelector } from './components/ModeSelector';
 import { SettingsPanel } from './components/SettingsPanel';
 import { Visualizer } from './components/Visualizer';
-import { AuthButton } from './components/AuthButton';
+import { Hero } from './components/Hero';
 import { PresetList, MixPreset } from './components/PresetList';
 import { MusicPlayer } from './components/MusicPlayer';
 import { useAudioProcessor } from './hooks/useAudioProcessor';
@@ -16,6 +16,7 @@ import { Play, Pause, Download, Wand2, Loader2, Save, Sparkles, LayoutDashboard,
 import { motion, AnimatePresence } from 'motion/react';
 import { supabase } from './supabase';
 import { Dashboard } from './components/Dashboard';
+import { AuthButton } from './components/AuthButton';
 
 interface UserProfile {
   uid: string;
@@ -157,8 +158,8 @@ function App() {
     setTracks((prev) => prev.filter((t) => t.id !== id));
   };
 
-  const handleUpdateLanguage = (id: string, language: string) => {
-    setTracks((prev) => prev.map((t) => (t.id === id ? { ...t, language } : t)));
+  const handleUpdateGenre = (id: string, genre: string) => {
+    setTracks((prev) => prev.map((t) => (t.id === id ? { ...t, genre } : t)));
   };
 
   const handleDetectBPM = async (id: string) => {
@@ -212,7 +213,7 @@ function App() {
     setShowAnalysisModal(true);
     
     try {
-      const trackData = tracks.map(t => ({ name: t.name, language: t.language }));
+      const trackData = tracks.map(t => ({ name: t.name, genre: t.genre }));
       const plan = userProfile?.plan || 'free';
       const result = await getTrendBasedRemixSettings(trackData, plan);
       
@@ -267,7 +268,7 @@ function App() {
     const blob = new Blob([wavBuffer], { type: 'audio/wav' });
     const url = URL.createObjectURL(blob);
     
-    const lang = tracks[0]?.language || 'Unknown';
+    const lang = tracks[0]?.genre || 'Unknown';
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
     const filename = `IndianDJMix_${activeMode}_${lang}_${timestamp}.wav`;
     
@@ -278,7 +279,7 @@ function App() {
   };
 
   const handleGenerateTitle = async () => {
-    const lang = tracks[0]?.language || 'Hindi';
+    const lang = tracks[0]?.genre || 'Hindi';
     setIsGeneratingTitle(true);
     const title = await generateDJTitle(lang, activeMode);
     setGeneratedTitle(title);
@@ -302,7 +303,7 @@ function App() {
         name: name,
         mode: activeMode,
         settings,
-        tracks: tracks.map(t => ({ name: t.name, language: t.language || 'Unknown' }))
+        tracks: tracks.map(t => ({ name: t.name, genre: t.genre || 'Unknown' }))
       }]);
       alert('Mix preset saved successfully!');
     } catch (error) {
@@ -324,25 +325,24 @@ function App() {
   }
 
   return (
-    <div className="min-h-screen bg-black text-white font-rajdhani selection:bg-orange-500 selection:text-white pb-20 relative">
+    <div className="min-h-screen bg-bg text-white font-sans selection:bg-primary selection:text-white pb-20 relative">
       {/* Header */}
-      <header className="border-b border-white/10 bg-black sticky top-0 z-50 shadow-lg shadow-orange-900/10">
+      <header className="border-b border-white/10 bg-bg/80 backdrop-blur-md sticky top-0 z-50">
         <div className="container mx-auto px-4 py-4 flex justify-between items-center">
           <div className="flex items-center space-x-3">
-            <div className="w-12 h-12 bg-orange-600 text-white rounded-xl flex items-center justify-center shadow-[0_0_20px_rgba(234,88,12,0.4)] ring-1 ring-white/20">
-              <span className="font-orbitron font-bold text-2xl drop-shadow-md">DJ</span>
+            <div className="w-10 h-10 bg-primary text-white rounded-xl flex items-center justify-center shadow-[0_0_20px_rgba(124,58,237,0.4)] ring-1 ring-white/20">
+              <Sparkles size={20} />
             </div>
             <div>
-              <h1 className="text-3xl font-black font-orbitron tracking-widest text-white drop-shadow-lg">
-                INDIAN REMIX STUDIO
+              <h1 className="text-xl font-black font-display tracking-tight text-white drop-shadow-lg">
+                AI DJ Mixer
               </h1>
-              <p className="text-xs text-orange-500 font-rajdhani font-bold tracking-[0.2em] uppercase">AI-Powered Production Suite</p>
             </div>
           </div>
           <div className="flex items-center space-x-4">
              <button 
                onClick={() => setCurrentView('dashboard')}
-               className="flex items-center gap-2 px-4 py-2 bg-white/5 hover:bg-orange-600 text-white rounded-lg transition-all font-bold tracking-wide border border-white/10 hover:border-orange-500/50"
+               className="flex items-center gap-2 px-4 py-2 bg-white/5 hover:bg-primary text-white rounded-lg transition-all font-medium border border-white/10 hover:border-primary/50"
              >
                <LayoutDashboard size={18} />
                <span className="hidden sm:inline">Dashboard</span>
@@ -353,6 +353,21 @@ function App() {
       </header>
 
       <main className="container mx-auto px-4 py-8">
+        {tracks.length === 0 && (
+          <Hero 
+            onUploadClick={() => {
+              const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
+              if (fileInput) fileInput.click();
+            }}
+            onDemoClick={() => {
+              // Demo functionality can be added here
+              alert("Demo mode coming soon!");
+            }}
+            onEffectsClick={() => {
+              window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+            }}
+          />
+        )}
         
         <ModeSelector activeMode={activeMode} onModeChange={setActiveMode} />
 
@@ -366,7 +381,7 @@ function App() {
             <TrackList 
               tracks={tracks} 
               onRemoveTrack={handleRemoveTrack} 
-              onUpdateLanguage={handleUpdateLanguage}
+              onUpdateGenre={handleUpdateGenre}
               onDetectBPM={handleDetectBPM}
               onReplaceTrack={handleReplaceTrack}
               detectingBPMId={detectingBPMId}
@@ -383,14 +398,14 @@ function App() {
             />
 
             {/* Action Card */}
-            <div className="bg-gray-900 border border-white/10 rounded-xl p-6">
-              <h3 className="text-xl font-orbitron text-white mb-4">Actions</h3>
+            <div className="bg-secondary border border-white/10 rounded-xl p-6">
+              <h3 className="text-xl font-display font-bold text-white mb-4">Actions</h3>
               
               <div className="grid grid-cols-2 gap-3 mb-4">
                 <button
                   onClick={handleAutoTrendMix}
                   disabled={tracks.length === 0 || isAnalyzingTrends || isProcessing}
-                  className="bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white py-3 rounded-lg font-orbitron font-bold tracking-widest shadow-[0_0_15px_rgba(124,58,237,0.4)] transition-all flex items-center justify-center space-x-2 text-xs sm:text-sm"
+                  className="bg-gradient-to-r from-primary to-accent hover:from-primary/90 hover:to-accent/90 disabled:opacity-50 disabled:cursor-not-allowed text-white py-3 rounded-lg font-medium shadow-[0_0_15px_rgba(124,58,237,0.4)] transition-all flex items-center justify-center space-x-2 text-xs sm:text-sm"
                 >
                   {isAnalyzingTrends ? (
                     <Loader2 className="animate-spin" size={16} />
@@ -403,7 +418,7 @@ function App() {
                 <button
                   onClick={handleDeepAnalysis}
                   disabled={tracks.length === 0 || isAnalyzingStructure}
-                  className="bg-gray-800 hover:bg-gray-700 border border-white/10 text-white py-3 rounded-lg font-orbitron font-bold tracking-widest transition-all flex items-center justify-center space-x-2 text-xs sm:text-sm"
+                  className="bg-white/5 hover:bg-white/10 border border-white/10 text-white py-3 rounded-lg font-medium transition-all flex items-center justify-center space-x-2 text-xs sm:text-sm"
                 >
                   {isAnalyzingStructure ? (
                     <Loader2 className="animate-spin" size={16} />
@@ -417,7 +432,7 @@ function App() {
               <button
                 onClick={handleProcess}
                 disabled={tracks.length === 0 || isProcessing}
-                className="w-full mb-4 bg-gradient-to-r from-orange-500 to-pink-600 hover:from-orange-400 hover:to-pink-500 disabled:opacity-50 disabled:cursor-not-allowed text-white py-4 rounded-lg font-orbitron font-bold tracking-widest shadow-[0_0_20px_rgba(255,60,172,0.4)] transition-all flex items-center justify-center space-x-2"
+                className="w-full mb-4 bg-primary hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed text-white py-4 rounded-lg font-bold shadow-[0_0_20px_rgba(124,58,237,0.4)] transition-all flex items-center justify-center space-x-2"
               >
                 {isProcessing ? (
                   <>
@@ -479,6 +494,44 @@ function App() {
 
       </main>
 
+      {/* Footer */}
+      <footer className="border-t border-white/10 bg-secondary/50 mt-20">
+        <div className="container mx-auto px-4 py-12">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
+            <div className="col-span-1 md:col-span-2">
+              <div className="flex items-center space-x-2 mb-4">
+                <Sparkles className="text-primary" size={24} />
+                <h2 className="text-xl font-display font-bold text-white">AI DJ Mixer</h2>
+              </div>
+              <p className="text-gray-400 max-w-sm">
+                Professional AI-powered audio conversion and DJ mixing tools. Create unique sounds with advanced effects.
+              </p>
+            </div>
+            <div>
+              <h3 className="text-white font-bold mb-4">Features</h3>
+              <ul className="space-y-2 text-gray-400">
+                <li><a href="#" className="hover:text-primary transition-colors">Slowed + Reverb</a></li>
+                <li><a href="#" className="hover:text-primary transition-colors">8D Audio</a></li>
+                <li><a href="#" className="hover:text-primary transition-colors">Nightcore</a></li>
+                <li><a href="#" className="hover:text-primary transition-colors">Bass Boost</a></li>
+              </ul>
+            </div>
+            <div>
+              <h3 className="text-white font-bold mb-4">Company</h3>
+              <ul className="space-y-2 text-gray-400">
+                <li><a href="#" className="hover:text-primary transition-colors">About</a></li>
+                <li><a href="#" className="hover:text-primary transition-colors">Contact</a></li>
+                <li><a href="#" className="hover:text-primary transition-colors">GitHub</a></li>
+                <li><a href="#" className="hover:text-primary transition-colors">Terms of Service</a></li>
+              </ul>
+            </div>
+          </div>
+          <div className="border-t border-white/10 mt-12 pt-8 text-center text-gray-500 text-sm">
+            <p>&copy; {new Date().getFullYear()} AI DJ Mixer. All rights reserved.</p>
+          </div>
+        </div>
+      </footer>
+
       {/* Analysis Modal */}
       <AnimatePresence>
         {showAnalysisModal && (
@@ -492,7 +545,7 @@ function App() {
               initial={{ scale: 0.9, opacity: 0 }} 
               animate={{ scale: 1, opacity: 1 }} 
               exit={{ scale: 0.9, opacity: 0 }}
-              className="bg-gray-900 border border-orange-500/30 rounded-2xl max-w-lg w-full p-6 shadow-2xl shadow-orange-900/20 relative"
+              className="bg-secondary border border-primary/30 rounded-2xl max-w-lg w-full p-6 shadow-2xl shadow-primary/20 relative"
             >
               <button 
                 onClick={() => setShowAnalysisModal(false)}
@@ -501,29 +554,29 @@ function App() {
                 <X size={20} />
               </button>
 
-              <h3 className="text-2xl font-orbitron text-white mb-6 flex items-center gap-2">
-                <BrainCircuit className="text-orange-500" /> AI Analysis Report
+              <h3 className="text-2xl font-display font-bold text-white mb-6 flex items-center gap-2">
+                <BrainCircuit className="text-primary" /> AI Analysis Report
               </h3>
 
               {isAnalyzingTrends || isAnalyzingStructure ? (
                 <div className="py-12 flex flex-col items-center justify-center text-gray-400 space-y-4">
-                  <Loader2 className="animate-spin text-orange-500" size={48} />
+                  <Loader2 className="animate-spin text-primary" size={48} />
                   <p>Analyzing audio patterns & trends...</p>
                 </div>
               ) : (
                 <div className="space-y-6 max-h-[60vh] overflow-y-auto pr-2 custom-scrollbar">
                   {trendResult && (
                     <div className="space-y-4">
-                      <div className="bg-orange-500/10 border border-orange-500/20 rounded-xl p-4">
+                      <div className="bg-primary/10 border border-primary/20 rounded-xl p-4">
                         <div className="flex justify-between items-start mb-2">
-                          <h4 className="text-orange-400 font-bold uppercase tracking-wider text-sm">Trend Strategy</h4>
+                          <h4 className="text-primary font-bold uppercase tracking-wider text-sm">Trend Strategy</h4>
                           {trendResult.viralScore && (
-                            <span className="bg-orange-500 text-white text-xs font-bold px-2 py-1 rounded-full">
+                            <span className="bg-primary text-white text-xs font-bold px-2 py-1 rounded-full">
                               Viral Score: {trendResult.viralScore}/100
                             </span>
                           )}
                         </div>
-                        <p className="text-white text-lg font-orbitron mb-2 capitalize">{trendResult.mode.replace('-', ' + ')} Mode</p>
+                        <p className="text-white text-lg font-display font-bold mb-2 capitalize">{trendResult.mode.replace('-', ' + ')} Mode</p>
                         <p className="text-gray-300 text-sm leading-relaxed">{trendResult.explanation}</p>
                       </div>
                       <div className="text-xs text-gray-500 text-center">
@@ -535,39 +588,39 @@ function App() {
                   {structureAnalysis && (
                     <div className="space-y-4">
                       <div className="grid grid-cols-2 gap-4">
-                        <div className="bg-gray-800 p-3 rounded-lg">
+                        <div className="bg-secondary p-3 rounded-lg">
                           <p className="text-xs text-gray-500 uppercase">Key</p>
                           <p className="text-white font-bold">{structureAnalysis.key}</p>
                         </div>
-                        <div className="bg-gray-800 p-3 rounded-lg">
+                        <div className="bg-secondary p-3 rounded-lg">
                           <p className="text-xs text-gray-500 uppercase">BPM</p>
                           <p className="text-white font-bold">{structureAnalysis.bpm}</p>
                         </div>
-                        <div className="bg-gray-800 p-3 rounded-lg">
+                        <div className="bg-secondary p-3 rounded-lg">
                           <p className="text-xs text-gray-500 uppercase">Genre</p>
                           <p className="text-white font-bold">{structureAnalysis.genre}</p>
                         </div>
-                        <div className="bg-gray-800 p-3 rounded-lg">
+                        <div className="bg-secondary p-3 rounded-lg">
                           <p className="text-xs text-gray-500 uppercase">Mood</p>
                           <p className="text-white font-bold">{structureAnalysis.mood}</p>
                         </div>
                       </div>
 
-                      <div className="bg-gray-800 p-4 rounded-xl">
+                      <div className="bg-secondary p-4 rounded-xl">
                         <p className="text-xs text-gray-500 uppercase mb-2">Dominant Instruments</p>
                         <div className="flex flex-wrap gap-2">
                           {structureAnalysis.instruments.map((inst, i) => (
-                            <span key={i} className="bg-gray-700 text-white text-xs px-2 py-1 rounded-md">{inst}</span>
+                            <span key={i} className="bg-bg text-white text-xs px-2 py-1 rounded-md border border-white/10">{inst}</span>
                           ))}
                         </div>
                       </div>
 
-                      <div className="bg-gray-800 p-4 rounded-xl">
+                      <div className="bg-secondary p-4 rounded-xl">
                         <p className="text-xs text-gray-500 uppercase mb-2">Remix Suggestions</p>
                         <ul className="space-y-2">
                           {structureAnalysis.suggestions.map((sugg, i) => (
                             <li key={i} className="flex items-start gap-2 text-sm text-gray-300">
-                              <span className="text-orange-500 mt-1">•</span>
+                              <span className="text-primary mt-1">•</span>
                               {sugg}
                             </li>
                           ))}

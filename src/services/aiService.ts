@@ -24,13 +24,13 @@ export interface SongStructureAnalysis {
 }
 
 export async function getTrendBasedRemixSettings(
-  tracks: {name: string, language?: string}[], 
+  tracks: {name: string, genre?: string}[], 
   plan: 'free' | 'pro' | 'studio' = 'free'
 ): Promise<TrendRemixResponse | null> {
   if (!apiKey) return null;
 
   try {
-    const trackList = tracks.map(t => `"${t.name}" (${t.language || 'Unknown'})`).join(', ');
+    const trackList = tracks.map(t => `"${t.name}" (${t.genre || 'Unknown'})`).join(', ');
     
     // Tailor the prompt based on the plan
     let planContext = "";
@@ -48,7 +48,7 @@ export async function getTrendBasedRemixSettings(
       Analyze the following song(s): ${trackList}.
       
       Your Task:
-      1. Deeply analyze the metadata, language, and likely genre of these tracks.
+      1. Deeply analyze the metadata, genre, and likely sub-genre of these tracks.
       2. Identify current viral trends on Instagram Reels, YouTube Shorts, and Spotify Charts specifically for these genres in India.
       3. Determine the "winning formula" for a remix that would go viral right now (e.g., "Bhojpuri Lofi Flip", "Punjabi Drill Remix", "Haryanvi Hard Bass", "Slowed + Reverb with 8D spatial audio").
       4. ${planContext}
@@ -117,11 +117,11 @@ export async function analyzeSongStructure(filename: string): Promise<SongStruct
   }
 }
 
-export async function generateDJTitle(language: string, mode: string): Promise<string> {
+export async function generateDJTitle(genre: string, mode: string): Promise<string> {
   if (!apiKey) return "Indian DJ Mix";
 
   try {
-    const prompt = `Generate a cool, energetic, and fun DJ mix title for a ${language} song remix in ${mode} style. 
+    const prompt = `Generate a cool, energetic, and fun DJ mix title for a ${genre} song remix in ${mode} style. 
     Keep it short (under 6 words). Use Indian DJ slang if appropriate (like 'Dhamaka', 'Blast', 'Vibe'). 
     Do not use quotes. Just the title.`;
 

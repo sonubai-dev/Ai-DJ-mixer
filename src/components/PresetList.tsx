@@ -9,7 +9,7 @@ export interface MixPreset {
   mode: RemixMode;
   settings: RemixSettings;
   createdAt: string;
-  tracks: { name: string; language: string }[];
+  tracks: { name: string; genre: string }[];
 }
 
 interface PresetListProps {
@@ -77,8 +77,8 @@ export function PresetList({ onLoadPreset }: PresetListProps) {
   if (!user) return null;
 
   return (
-    <div className="bg-gray-900 border border-white/10 rounded-xl p-6 mt-8">
-      <h3 className="text-xl font-orbitron text-white mb-4 flex items-center gap-2">
+    <div className="bg-secondary border border-white/10 rounded-xl p-6 mt-8">
+      <h3 className="text-xl font-display font-bold text-white mb-4 flex items-center gap-2">
         <Settings size={20} className="text-white" />
         Saved Presets
       </h3>
@@ -93,8 +93,8 @@ export function PresetList({ onLoadPreset }: PresetListProps) {
             <div key={preset.id} className="bg-white/5 border border-white/10 rounded-lg p-4 hover:bg-white/10 transition-colors group">
               <div className="flex justify-between items-start mb-2">
                 <div className="overflow-hidden">
-                  <h4 className="font-orbitron text-orange-400 truncate" title={preset.name}>{preset.name}</h4>
-                  <p className="text-xs text-gray-400 font-rajdhani uppercase">{preset.mode} Mode</p>
+                  <h4 className="font-display font-bold text-primary truncate" title={preset.name}>{preset.name}</h4>
+                  <p className="text-xs text-gray-400 font-sans uppercase">{preset.mode} Mode</p>
                 </div>
                 <button 
                   onClick={() => handleDelete(preset.id)}
@@ -105,13 +105,13 @@ export function PresetList({ onLoadPreset }: PresetListProps) {
                 </button>
               </div>
               
-              <div className="text-xs text-gray-500 mb-3 font-rajdhani">
+              <div className="text-xs text-gray-500 mb-3 font-sans">
                 {preset.tracks.length} tracks • {new Date(preset.createdAt).toLocaleDateString()}
               </div>
 
               <button
                 onClick={() => onLoadPreset(preset)}
-                className="w-full bg-white/10 hover:bg-orange-600 text-white py-2 rounded text-xs font-orbitron tracking-wider flex items-center justify-center gap-2 transition-colors"
+                className="w-full bg-white/10 hover:bg-primary text-white py-2 rounded text-xs font-sans font-bold tracking-wider flex items-center justify-center gap-2 transition-colors"
               >
                 <Play size={12} />
                 LOAD SETTINGS
