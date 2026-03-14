@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { supabase } from '../supabase';
 import { LogIn, LogOut, User as UserIcon, X, Mail, Lock, Sparkles } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -102,7 +103,7 @@ export function AuthButton() {
     );
   }
 
-  const modalContent = (
+  const modalContent = typeof document !== 'undefined' ? createPortal(
     <AnimatePresence>
       {showModal && (
         <motion.div
@@ -221,8 +222,9 @@ export function AuthButton() {
           </motion.div>
         </motion.div>
       )}
-    </AnimatePresence>
-  );
+    </AnimatePresence>,
+    document.body
+  ) : null;
 
   return (
     <>

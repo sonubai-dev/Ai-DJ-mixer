@@ -1,5 +1,5 @@
 {
   "name": "Indian DJ Remix Studio",
   "description": "A full-stack Indian Regional Music DJ Mixer & Remix Studio with AI features.",
-  "requestFramePermissions": ["microphone"]
+  "requestFramePermissions": []
 }
