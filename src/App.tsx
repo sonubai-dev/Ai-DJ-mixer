@@ -17,6 +17,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { supabase } from './supabase';
 import { Dashboard } from './components/Dashboard';
 import { AuthButton } from './components/AuthButton';
+import { InfoModal, InfoPage } from './components/InfoModal';
 
 interface UserProfile {
   uid: string;
@@ -45,6 +46,7 @@ function App() {
   const [isAnalyzingStructure, setIsAnalyzingStructure] = useState(false);
   const [detectingBPMId, setDetectingBPMId] = useState<string | null>(null);
   const [currentView, setCurrentView] = useState<'studio' | 'dashboard'>('studio');
+  const [infoPage, setInfoPage] = useState<InfoPage>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   
   const [trendResult, setTrendResult] = useState<TrendRemixResponse | null>(null);
@@ -510,19 +512,20 @@ function App() {
             <div>
               <h3 className="text-white font-bold mb-4">Features</h3>
               <ul className="space-y-2 text-gray-400">
-                <li><a href="#" className="hover:text-primary transition-colors">Slowed + Reverb</a></li>
-                <li><a href="#" className="hover:text-primary transition-colors">8D Audio</a></li>
-                <li><a href="#" className="hover:text-primary transition-colors">Nightcore</a></li>
-                <li><a href="#" className="hover:text-primary transition-colors">Bass Boost</a></li>
+                <li><button onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })} className="hover:text-primary transition-colors">Slowed + Reverb</button></li>
+                <li><button onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })} className="hover:text-primary transition-colors">8D Audio</button></li>
+                <li><button onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })} className="hover:text-primary transition-colors">Nightcore</button></li>
+                <li><button onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })} className="hover:text-primary transition-colors">Bass Boost</button></li>
               </ul>
             </div>
             <div>
               <h3 className="text-white font-bold mb-4">Company</h3>
               <ul className="space-y-2 text-gray-400">
-                <li><a href="#" className="hover:text-primary transition-colors">About</a></li>
-                <li><a href="#" className="hover:text-primary transition-colors">Contact</a></li>
-                <li><a href="#" className="hover:text-primary transition-colors">GitHub</a></li>
-                <li><a href="#" className="hover:text-primary transition-colors">Terms of Service</a></li>
+                <li><button onClick={() => setInfoPage('about')} className="hover:text-primary transition-colors">About</button></li>
+                <li><button onClick={() => setInfoPage('contact')} className="hover:text-primary transition-colors">Contact</button></li>
+                <li><a href="https://github.com" target="_blank" rel="noreferrer" className="hover:text-primary transition-colors">GitHub</a></li>
+                <li><button onClick={() => setInfoPage('terms')} className="hover:text-primary transition-colors">Terms of Service</button></li>
+                <li><button onClick={() => setInfoPage('privacy')} className="hover:text-primary transition-colors">Privacy Policy</button></li>
               </ul>
             </div>
           </div>
@@ -531,6 +534,9 @@ function App() {
           </div>
         </div>
       </footer>
+
+      {/* Info Modal */}
+      <InfoModal page={infoPage} onClose={() => setInfoPage(null)} />
 
       {/* Analysis Modal */}
       <AnimatePresence>
