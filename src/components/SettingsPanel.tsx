@@ -46,29 +46,29 @@ export function SettingsPanel({ mode, settings, onSettingsChange, tracks = [] }:
             </div>
             <div className="space-y-4 group">
               <div className="flex justify-between items-center">
-                <label className="text-gray-200 text-sm font-sans font-bold tracking-widest group-hover:text-primary transition-colors">Echo Delay</label>
-                <span className="text-primary font-mono font-bold text-xs bg-primary/10 px-2 py-1 rounded border border-primary/20">{settings.echoDelay}ms</span>
+                <label className="text-gray-200 text-sm font-sans font-bold tracking-widest group-hover:text-primary transition-colors">Bass</label>
+                <span className="text-primary font-mono font-bold text-xs bg-primary/10 px-2 py-1 rounded border border-primary/20">{settings.bass}dB</span>
               </div>
               <input
                 type="range"
-                min="50"
-                max="800"
-                value={settings.echoDelay}
-                onChange={(e) => handleChange('echoDelay', Number(e.target.value))}
+                min="-12"
+                max="12"
+                value={settings.bass}
+                onChange={(e) => handleChange('bass', Number(e.target.value))}
                 className="w-full h-2 bg-bg rounded-lg appearance-none cursor-pointer accent-primary hover:accent-primary/80 transition-all"
               />
             </div>
             <div className="space-y-4 group">
               <div className="flex justify-between items-center">
-                <label className="text-gray-200 text-sm font-sans font-bold tracking-widest group-hover:text-primary transition-colors">Feedback</label>
-                <span className="text-primary font-mono font-bold text-xs bg-primary/10 px-2 py-1 rounded border border-primary/20">{settings.echoFeedback}%</span>
+                <label className="text-gray-200 text-sm font-sans font-bold tracking-widest group-hover:text-primary transition-colors">Treble</label>
+                <span className="text-primary font-mono font-bold text-xs bg-primary/10 px-2 py-1 rounded border border-primary/20">{settings.treble}dB</span>
               </div>
               <input
                 type="range"
-                min="0"
-                max="70"
-                value={settings.echoFeedback}
-                onChange={(e) => handleChange('echoFeedback', Number(e.target.value))}
+                min="-12"
+                max="12"
+                value={settings.treble}
+                onChange={(e) => handleChange('treble', Number(e.target.value))}
                 className="w-full h-2 bg-bg rounded-lg appearance-none cursor-pointer accent-primary hover:accent-primary/80 transition-all"
               />
             </div>
@@ -76,21 +76,24 @@ export function SettingsPanel({ mode, settings, onSettingsChange, tracks = [] }:
         )}
 
         {isSlowed && (
-          <>
-            <div className="space-y-4 group">
-              <div className="flex justify-between items-center">
-                <label className="text-gray-200 text-sm font-sans font-bold tracking-widest group-hover:text-accent transition-colors">Slow Factor</label>
-                <span className="text-accent font-mono font-bold text-xs bg-accent/10 px-2 py-1 rounded border border-accent/20">{settings.slowFactor}%</span>
-              </div>
-              <input
-                type="range"
-                min="40"
-                max="95"
-                value={settings.slowFactor}
-                onChange={(e) => handleChange('slowFactor', Number(e.target.value))}
-                className="w-full h-2 bg-bg rounded-lg appearance-none cursor-pointer accent-accent hover:accent-accent/80 transition-all"
-              />
+          <div className="space-y-4 group">
+            <div className="flex justify-between items-center">
+              <label className="text-gray-200 text-sm font-sans font-bold tracking-widest group-hover:text-accent transition-colors">Slow Factor</label>
+              <span className="text-accent font-mono font-bold text-xs bg-accent/10 px-2 py-1 rounded border border-accent/20">{settings.slowFactor}%</span>
             </div>
+            <input
+              type="range"
+              min="40"
+              max="95"
+              value={settings.slowFactor}
+              onChange={(e) => handleChange('slowFactor', Number(e.target.value))}
+              className="w-full h-2 bg-bg rounded-lg appearance-none cursor-pointer accent-accent hover:accent-accent/80 transition-all"
+            />
+          </div>
+        )}
+
+        {(isSlowed || isSpatial) && (
+          <>
             <div className="space-y-4 group">
               <div className="flex justify-between items-center">
                 <label className="text-gray-200 text-sm font-sans font-bold tracking-widest group-hover:text-accent transition-colors">Reverb Mix</label>
@@ -162,56 +165,102 @@ export function SettingsPanel({ mode, settings, onSettingsChange, tracks = [] }:
               />
             </div>
 
-            {/* Crossfade Visualizer */}
+            {/* Enhanced Crossfade Visualizer */}
             {tracks.length >= 2 && (
-              <div className="bg-bg/40 rounded-xl p-4 border border-white/5">
-                <p className="text-xs text-gray-400 font-mono mb-3 uppercase tracking-wider">Transition Preview</p>
-                <div className="relative h-24 bg-secondary/50 rounded-lg overflow-hidden border border-white/5 flex items-center justify-center">
-                  {/* Center Line (Mix Point) */}
-                  <div className="absolute top-0 bottom-0 left-1/2 w-px bg-white/20 z-10 border-l border-dashed border-white/20" />
-                  
-                  {/* Track 1 (Outgoing) */}
-                  <div 
-                    className="absolute top-4 bottom-4 left-0 bg-gradient-to-r from-primary/80 to-primary/0 border-r border-primary/50 rounded-l-md"
-                    style={{ 
-                      right: '50%', 
-                      marginRight: `-${(settings.crossfadeDuration / 20) * 100 / 2}%`,
-                      width: '45%' 
-                    }}
-                  >
-                    <span className="absolute left-2 top-2 text-[10px] font-bold text-primary-200 truncate max-w-[80px]">{tracks[0].name}</span>
+              <div className="bg-bg/40 rounded-xl p-6 border border-white/5 space-y-4">
+                <div className="flex justify-between items-end">
+                  <div>
+                    <p className="text-xs text-gray-400 font-mono uppercase tracking-wider mb-1">Transition Dynamics</p>
+                    <h4 className="text-sm font-display font-bold text-white">Crossfade Curve</h4>
                   </div>
-
-                  {/* Track 2 (Incoming) */}
-                  <div 
-                    className="absolute top-4 bottom-4 right-0 bg-gradient-to-l from-accent/80 to-accent/0 border-l border-accent/50 rounded-r-md"
-                    style={{ 
-                      left: '50%', 
-                      marginLeft: `-${(settings.crossfadeDuration / 20) * 100 / 2}%`,
-                      width: '45%'
-                    }}
-                  >
-                    <span className="absolute right-2 bottom-2 text-[10px] font-bold text-accent-200 truncate max-w-[80px] text-right">{tracks[1].name}</span>
-                  </div>
-
-                  {/* Overlap Highlight */}
-                  <div 
-                    className="absolute top-0 bottom-0 bg-primary/10 border-x border-primary/30 z-0"
-                    style={{
-                      left: '50%',
-                      marginLeft: `-${(settings.crossfadeDuration / 20) * 100 / 2}%`,
-                      width: `${(settings.crossfadeDuration / 20) * 100}%`
-                    }}
-                  >
-                    <div className="absolute top-2 left-1/2 -translate-x-1/2 text-[9px] text-primary-300 font-mono bg-bg/50 px-1 rounded">
-                      {settings.crossfadeDuration}s Overlap
-                    </div>
+                  <div className="text-[10px] font-mono text-primary-400 bg-primary/5 px-2 py-1 rounded border border-primary/10">
+                    {settings.crossfadeDuration}s OVERLAP
                   </div>
                 </div>
-                <div className="flex justify-between text-[10px] text-gray-500 font-mono mt-1 px-1">
-                  <span>-10s</span>
-                  <span>Mix Point</span>
-                  <span>+10s</span>
+
+                <div className="relative h-32 bg-secondary/30 rounded-xl overflow-hidden border border-white/5 group/viz">
+                  {/* Grid Lines */}
+                  <div className="absolute inset-0 flex justify-between px-4 pointer-events-none opacity-20">
+                    {[...Array(5)].map((_, i) => (
+                      <div key={i} className="w-px h-full bg-white/20" />
+                    ))}
+                  </div>
+
+                  <svg className="w-full h-full" viewBox="0 0 400 100" preserveAspectRatio="none">
+                    <defs>
+                      <linearGradient id="fade1" x1="0%" y1="0%" x2="100%" y2="0%">
+                        <stop offset="0%" stopColor="#7c3aed" stopOpacity="0.8" />
+                        <stop offset="100%" stopColor="#7c3aed" stopOpacity="0" />
+                      </linearGradient>
+                      <linearGradient id="fade2" x1="0%" y1="0%" x2="100%" y2="0%">
+                        <stop offset="0%" stopColor="#22d3ee" stopOpacity="0" />
+                        <stop offset="100%" stopColor="#22d3ee" stopOpacity="0.8" />
+                      </linearGradient>
+                    </defs>
+
+                    {/* Track 1 Curve (Outgoing) */}
+                    <path
+                      d={`M 0,20 L ${200 - (settings.crossfadeDuration / 20) * 200},20 L ${200 + (settings.crossfadeDuration / 20) * 200},80 L 400,80`}
+                      fill="none"
+                      stroke="url(#fade1)"
+                      strokeWidth="3"
+                      strokeLinecap="round"
+                      className="transition-all duration-300"
+                    />
+                    
+                    {/* Track 2 Curve (Incoming) */}
+                    <path
+                      d={`M 0,80 L ${200 - (settings.crossfadeDuration / 20) * 200},80 L ${200 + (settings.crossfadeDuration / 20) * 200},20 L 400,20`}
+                      fill="none"
+                      stroke="url(#fade2)"
+                      strokeWidth="3"
+                      strokeLinecap="round"
+                      className="transition-all duration-300"
+                    />
+
+                    {/* Fill Areas */}
+                    <path
+                      d={`M 0,20 L ${200 - (settings.crossfadeDuration / 20) * 200},20 L ${200 + (settings.crossfadeDuration / 20) * 200},80 L 400,80 L 400,100 L 0,100 Z`}
+                      fill="url(#fade1)"
+                      fillOpacity="0.1"
+                      className="transition-all duration-300"
+                    />
+                    <path
+                      d={`M 0,80 L ${200 - (settings.crossfadeDuration / 20) * 200},80 L ${200 + (settings.crossfadeDuration / 20) * 200},20 L 400,20 L 400,100 L 0,100 Z`}
+                      fill="url(#fade2)"
+                      fillOpacity="0.1"
+                      className="transition-all duration-300"
+                    />
+                  </svg>
+
+                  {/* Labels */}
+                  <div className="absolute top-2 left-4 text-[9px] font-bold text-primary-300 uppercase tracking-tighter bg-primary/10 px-1.5 py-0.5 rounded border border-primary/20">
+                    {tracks[0].name}
+                  </div>
+                  <div className="absolute bottom-2 right-4 text-[9px] font-bold text-accent-300 uppercase tracking-tighter bg-accent/10 px-1.5 py-0.5 rounded border border-accent/20">
+                    {tracks[1].name}
+                  </div>
+
+                  {/* Mix Point Indicator */}
+                  <div className="absolute top-0 bottom-0 left-1/2 -translate-x-1/2 w-px bg-white/40 z-10">
+                    <div className="absolute top-0 left-1/2 -translate-x-1/2 w-2 h-2 bg-white rounded-full shadow-[0_0_8px_white]" />
+                    <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-2 h-2 bg-white rounded-full shadow-[0_0_8px_white]" />
+                  </div>
+                </div>
+
+                <div className="flex justify-between items-center text-[10px] text-gray-500 font-mono px-1">
+                  <div className="flex items-center gap-1.5">
+                    <div className="w-2 h-2 rounded-full bg-primary" />
+                    <span>Track 1 Out</span>
+                  </div>
+                  <div className="flex flex-col items-center">
+                    <span className="text-white/60 font-bold">MIX POINT</span>
+                    <span className="text-[8px] opacity-50">0.0s</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span>Track 2 In</span>
+                    <div className="w-2 h-2 rounded-full bg-accent" />
+                  </div>
                 </div>
               </div>
             )}

@@ -12,6 +12,8 @@ export interface AudioTrack {
 export interface RemixSettings {
   // DJ Mode
   bassBoost: number; // dB
+  bass: number; // dB (-12 to +12)
+  treble: number; // dB (-12 to +12)
   echoDelay: number; // ms
   echoFeedback: number; // %
 

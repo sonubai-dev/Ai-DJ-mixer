@@ -8,10 +8,22 @@ interface MusicPlayerProps {
   onDownload: () => void;
   onPlayStateChange: (isPlaying: boolean) => void;
   isProcessing?: boolean;
+  isUnlocked?: boolean;
+  onPay?: () => void;
   trackTitle?: string;
 }
 
-export function MusicPlayer({ audioContext, processedBuffer, analyserNode, onDownload, onPlayStateChange, isProcessing, trackTitle }: MusicPlayerProps) {
+export function MusicPlayer({ 
+  audioContext, 
+  processedBuffer, 
+  analyserNode, 
+  onDownload, 
+  onPlayStateChange, 
+  isProcessing, 
+  isUnlocked = true,
+  onPay,
+  trackTitle 
+}: MusicPlayerProps) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [volume, setVolume] = useState(1);
@@ -207,10 +219,16 @@ export function MusicPlayer({ audioContext, processedBuffer, analyserNode, onDow
         <div className="flex justify-end w-1/3">
           <button
             onClick={onDownload}
-            className="flex items-center space-x-2 px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 hover:border-white/20 text-white rounded-lg transition-all text-sm font-sans font-bold tracking-wider"
+            className={`flex items-center space-x-2 px-4 py-2 rounded-lg transition-all text-sm font-sans font-bold tracking-wider ${
+              isUnlocked 
+                ? 'bg-white/5 hover:bg-white/10 border border-white/10 hover:border-white/20 text-white' 
+                : 'bg-primary/20 hover:bg-primary/30 border border-primary/30 text-primary'
+            }`}
           >
             <Download size={16} />
-            <span className="hidden sm:inline">SAVE WAV</span>
+            <span className="hidden sm:inline">
+              {isUnlocked ? 'SAVE WAV' : 'PAY ₹5 TO UNLOCK'}
+            </span>
           </button>
         </div>
       </div>

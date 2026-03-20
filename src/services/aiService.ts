@@ -58,8 +58,8 @@ export async function getTrendBasedRemixSettings(
         "mode": "dj" | "slowed" | "3d" | "8d" | "16d" | "3d-dj" | "3d-slowed" | "8d-dj" | "8d-slowed" | "16d-dj" | "16d-slowed",
         "settings": {
           "bassBoost": number (0-20),
-          "echoDelay": number (0-1000),
-          "echoFeedback": number (0-100),
+          "bass": number (-12 to 12),
+          "treble": number (-12 to 12),
           "slowFactor": number (50-100),
           "reverbWet": number (0-100),
           "reverbSize": number (0-10),

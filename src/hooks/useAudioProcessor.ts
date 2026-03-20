@@ -5,6 +5,7 @@ export function useAudioProcessor() {
   const [audioContext, setAudioContext] = useState<AudioContext | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [processedBuffer, setProcessedBuffer] = useState<AudioBuffer | null>(null);
+  const irCache = useRef<AudioBuffer | null>(null);
 
   useEffect(() => {
     const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
@@ -154,20 +155,33 @@ export function useAudioProcessor() {
         highShelf.frequency.value = 10000;
         highShelf.gain.value = 3.5;
 
+        // --- Granular Tone Shaping ---
+        const bassEQ = offlineCtx.createBiquadFilter();
+        bassEQ.type = 'lowshelf';
+        bassEQ.frequency.value = 100;
+        bassEQ.gain.value = settings.bass || 0;
+
+        const trebleEQ = offlineCtx.createBiquadFilter();
+        trebleEQ.type = 'highshelf';
+        trebleEQ.frequency.value = 8000;
+        trebleEQ.gain.value = settings.treble || 0;
+
         // Connect Filters
         currentChainNode.connect(subBass);
         subBass.connect(bassShelf);
         bassShelf.connect(midScoop);
         midScoop.connect(highShelf);
+        highShelf.connect(bassEQ);
+        bassEQ.connect(trebleEQ);
         
-        currentChainNode = highShelf;
+        currentChainNode = trebleEQ;
 
         // --- DJ ECHO (Send) ---
         const delay = offlineCtx.createDelay();
-        delay.delayTime.value = settings.echoDelay / 1000;
+        delay.delayTime.value = 0; // Fixed at 0 as requested
 
         const feedback = offlineCtx.createGain();
-        feedback.gain.value = settings.echoFeedback / 100;
+        feedback.gain.value = 0; // Fixed at 0 as requested
 
         const echoFilter = offlineCtx.createBiquadFilter();
         echoFilter.type = 'lowpass';
@@ -186,38 +200,72 @@ export function useAudioProcessor() {
       }
 
       // --- REVERB (Send) ---
-      // Applied if Slowed OR Spatial (to give it depth)
       if (isSlowed || isSpatial) {
         const convolver = offlineCtx.createConvolver();
         
-        // Reverb Settings - Studio Plate Style
-        const reverbSize = isSlowed ? Math.min(settings.reverbSize, 3.5) : 1.8;
-        const reverbWet = isSlowed ? settings.reverbWet : 15;
+        const reverbSize = settings.reverbSize;
+        const reverbWet = settings.reverbWet;
 
-        // Generate Plate Impulse Response
-        const rate = offlineCtx.sampleRate;
-        const length = rate * reverbSize;
-        const decay = 3.0;
-        const impulse = offlineCtx.createBuffer(2, length, rate);
-        const impulseL = impulse.getChannelData(0);
-        const impulseR = impulse.getChannelData(1);
+        let impulse: AudioBuffer;
         
-        for (let i = 0; i < length; i++) {
-          const power = Math.pow(1 - i / length, decay);
-          // Add some "plate" density
-          const noise = (Math.random() * 2 - 1);
-          impulseL[i] = noise * power * (0.8 + Math.sin(i * 0.01) * 0.2);
-          impulseR[i] = noise * power * (0.8 + Math.cos(i * 0.01) * 0.2);
+        // Try to use a pre-recorded high-quality plate impulse response for a natural sound
+        try {
+          if (!irCache.current) {
+            const irUrl = 'https://raw.githubusercontent.com/mdn/webaudio-examples/master/voice-change-o-matic/audio/plate.wav';
+            const irRes = await fetch(irUrl);
+            const irAB = await irRes.arrayBuffer();
+            irCache.current = await audioContext.decodeAudioData(irAB);
+          }
+          
+          const baseIR = irCache.current!;
+          const rate = offlineCtx.sampleRate;
+          
+          const length = Math.min(baseIR.length, Math.floor(reverbSize * rate));
+          impulse = offlineCtx.createBuffer(2, length, rate);
+          
+          for (let channel = 0; channel < 2; channel++) {
+            const channelData = baseIR.getChannelData(channel % baseIR.numberOfChannels);
+            const targetData = impulse.getChannelData(channel);
+            for (let i = 0; i < length; i++) {
+              const t = i / rate;
+              const decayEnvelope = Math.exp(-6.908 * t / reverbSize);
+              targetData[i] = channelData[i] * decayEnvelope;
+            }
+          }
+        } catch (e) {
+          const rate = offlineCtx.sampleRate;
+          const length = Math.floor(reverbSize * rate);
+          impulse = offlineCtx.createBuffer(2, length, rate);
+          for (let channel = 0; channel < 2; channel++) {
+            const data = impulse.getChannelData(channel);
+            for (let i = 0; i < length; i++) {
+              const t = i / rate;
+              const power = Math.exp(-6.908 * t / reverbSize);
+              data[i] = (Math.random() * 2 - 1) * power;
+            }
+          }
         }
+        
         convolver.buffer = impulse;
+
+        // Reverb Path Filtering for a "Richer Atmosphere"
+        const reverbHP = offlineCtx.createBiquadFilter();
+        reverbHP.type = 'highpass';
+        reverbHP.frequency.value = 300; // Remove muddiness
+        
+        const reverbLP = offlineCtx.createBiquadFilter();
+        reverbLP.type = 'lowpass';
+        reverbLP.frequency.value = 5000; // Warm, smooth top end
 
         const wetGain = offlineCtx.createGain();
         wetGain.gain.value = reverbWet / 100;
 
-        // Connect Reverb (Send)
-        currentChainNode.connect(convolver);
+        // Connect Reverb Chain
+        currentChainNode.connect(reverbHP);
+        reverbHP.connect(reverbLP);
+        reverbLP.connect(convolver);
         convolver.connect(wetGain);
-        wetGain.connect(highEndBoost); // Connect to start of mastering chain
+        wetGain.connect(highEndBoost);
       }
 
       // Final connection to mastering chain if not already connected via effects

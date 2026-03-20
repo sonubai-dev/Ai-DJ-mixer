@@ -12,7 +12,7 @@ import { AudioTrack, RemixMode, RemixSettings } from './types';
 import { audioBufferToWav } from './utils/encodeWAV';
 import { detectBPM } from './utils/bpmDetection';
 import { generateDJTitle, guessBPMFromMetadata, getTrendBasedRemixSettings, analyzeSongStructure, TrendRemixResponse, SongStructureAnalysis } from './services/aiService';
-import { Play, Pause, Download, Wand2, Loader2, Save, Sparkles, LayoutDashboard, BrainCircuit, X } from 'lucide-react';
+import { Play, Pause, Download, Wand2, Loader2, Save, Sparkles, LayoutDashboard, BrainCircuit, X, Music, Mic2, Activity, ListChecks, Key } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { supabase } from './supabase';
 import { Dashboard } from './components/Dashboard';
@@ -21,6 +21,7 @@ import { InfoModal, InfoPage } from './components/InfoModal';
 
 interface UserProfile {
   uid: string;
+  email?: string;
   plan?: 'free' | 'pro' | 'studio';
 }
 
@@ -29,8 +30,10 @@ function App() {
   const [activeMode, setActiveMode] = useState<RemixMode>('dj');
   const [settings, setSettings] = useState<RemixSettings>({
     bassBoost: 6,
-    echoDelay: 250,
-    echoFeedback: 40,
+    bass: 0,
+    treble: 0,
+    echoDelay: 0,
+    echoFeedback: 0,
     slowFactor: 85,
     reverbWet: 30,
     reverbSize: 2.5,
@@ -52,6 +55,10 @@ function App() {
   const [trendResult, setTrendResult] = useState<TrendRemixResponse | null>(null);
   const [structureAnalysis, setStructureAnalysis] = useState<SongStructureAnalysis | null>(null);
   const [showAnalysisModal, setShowAnalysisModal] = useState(false);
+  
+  const [currentMixId, setCurrentMixId] = useState<string | null>(null);
+  const [isUnlocked, setIsUnlocked] = useState(true);
+  const [dailyLimitReached, setDailyLimitReached] = useState(false);
 
   const { processAudio, isProcessing, processedBuffer, audioContext, decodeAudio } = useAudioProcessor();
   const analyserRef = useRef<AnalyserNode | null>(null);
@@ -221,7 +228,14 @@ function App() {
       
       if (result) {
         setActiveMode(result.mode);
-        setSettings(result.settings);
+        // Ensure echo settings remain 0 as requested, and provide defaults for new EQ settings
+        setSettings({ 
+          ...result.settings, 
+          echoDelay: 0, 
+          echoFeedback: 0,
+          bass: result.settings.bass ?? 0,
+          treble: result.settings.treble ?? 0
+        });
         setTrendResult(result);
       } else {
         alert("Could not analyze trends for this track.");
@@ -240,7 +254,6 @@ function App() {
     if (tracks.length === 0) return;
     setIsAnalyzingStructure(true);
     setStructureAnalysis(null);
-    setShowAnalysisModal(true);
 
     try {
       const result = await analyzeSongStructure(tracks[0].name);
@@ -257,6 +270,25 @@ function App() {
     if (tracks.length === 0) return;
     
     try {
+      // 1. Check limit and create mix entry on server
+      const response = await fetch('/api/extract-youtube', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          url: tracks[0].file instanceof File ? 'local_upload' : 'youtube_url', // Placeholder for tracking
+          userId: userProfile?.uid,
+          title: tracks[0].name
+        })
+      });
+
+      const data = await response.json();
+      if (data.success) {
+        setCurrentMixId(data.mixId);
+        setIsUnlocked(data.unlocked);
+        setDailyLimitReached(!data.unlocked);
+      }
+
+      // 2. Process audio client-side regardless (so they can hear it)
       await processAudio(tracks, activeMode, settings);
     } catch (error) {
       console.error(error);
@@ -264,8 +296,64 @@ function App() {
     }
   };
 
+  const handlePayment = async () => {
+    if (!currentMixId) return;
+
+    try {
+      const orderRes = await fetch('/api/razorpay/order', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mixId: currentMixId })
+      });
+      const orderData = await orderRes.json();
+
+      const options = {
+        key: import.meta.env.VITE_RAZORPAY_KEY_ID || 'rzp_test_placeholder',
+        amount: orderData.amount,
+        currency: orderData.currency,
+        name: "AI DJ Mixer",
+        description: "Unlock AI DJ Mix Download",
+        order_id: orderData.id,
+        handler: async (response: any) => {
+          const verifyRes = await fetch('/api/razorpay/verify', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              ...response,
+              mixId: currentMixId
+            })
+          });
+          const verifyData = await verifyRes.json();
+          if (verifyData.success) {
+            setIsUnlocked(true);
+            setDailyLimitReached(false);
+            alert("Payment successful! You can now download your mix.");
+          }
+        },
+        prefill: {
+          email: userProfile?.email || "",
+        },
+        theme: {
+          color: "#7c3aed",
+        },
+      };
+
+      const rzp = new (window as any).Razorpay(options);
+      rzp.open();
+    } catch (error) {
+      console.error("Payment Error:", error);
+      alert("Failed to initiate payment.");
+    }
+  };
+
   const handleDownload = () => {
     if (!processedBuffer) return;
+    
+    if (!isUnlocked) {
+      handlePayment();
+      return;
+    }
+
     const wavBuffer = audioBufferToWav(processedBuffer);
     const blob = new Blob([wavBuffer], { type: 'audio/wav' });
     const url = URL.createObjectURL(blob);
@@ -318,7 +406,14 @@ function App() {
 
   const handleLoadPreset = (preset: MixPreset) => {
     setActiveMode(preset.mode);
-    setSettings(preset.settings);
+    // Ensure echo settings remain 0 as requested, and provide defaults for new EQ settings
+    setSettings({ 
+      ...preset.settings, 
+      echoDelay: 0, 
+      echoFeedback: 0,
+      bass: preset.settings.bass ?? 0,
+      treble: preset.settings.treble ?? 0
+    });
     alert(`Loaded settings for "${preset.name}". \nMode: ${preset.mode}\n\nNote: Original audio files cannot be restored automatically. Please upload tracks to apply these settings.`);
   };
 
@@ -431,6 +526,76 @@ function App() {
                 </button>
               </div>
 
+              <AnimatePresence>
+                {structureAnalysis && (
+                  <motion.div
+                    initial={{ opacity: 0, height: 0, marginBottom: 0 }}
+                    animate={{ opacity: 1, height: 'auto', marginBottom: 24 }}
+                    exit={{ opacity: 0, height: 0, marginBottom: 0 }}
+                    className="bg-white/5 border border-white/10 rounded-xl p-5 space-y-4 overflow-hidden"
+                  >
+                    <div className="flex items-center justify-between border-b border-white/10 pb-3">
+                      <h4 className="text-sm font-display font-bold text-accent flex items-center gap-2 uppercase tracking-widest">
+                        <BrainCircuit size={16} />
+                        Deep Scan Results
+                      </h4>
+                      <button 
+                        onClick={() => setStructureAnalysis(null)}
+                        className="text-gray-500 hover:text-white transition-colors"
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-1">
+                        <span className="text-[10px] text-gray-500 uppercase font-mono">Genre</span>
+                        <p className="text-xs text-white font-bold flex items-center gap-1.5">
+                          <Music size={12} className="text-primary" />
+                          {structureAnalysis.genre}
+                        </p>
+                      </div>
+                      <div className="space-y-1">
+                        <span className="text-[10px] text-gray-500 uppercase font-mono">Key & BPM</span>
+                        <p className="text-xs text-white font-bold flex items-center gap-1.5">
+                          <Activity size={12} className="text-primary" />
+                          {structureAnalysis.key} • {structureAnalysis.bpm} BPM
+                        </p>
+                      </div>
+                      <div className="space-y-1">
+                        <span className="text-[10px] text-gray-500 uppercase font-mono">Mood</span>
+                        <p className="text-xs text-white font-bold flex items-center gap-1.5">
+                          <Sparkles size={12} className="text-primary" />
+                          {structureAnalysis.mood}
+                        </p>
+                      </div>
+                      <div className="space-y-1">
+                        <span className="text-[10px] text-gray-500 uppercase font-mono">Instruments</span>
+                        <p className="text-xs text-white font-bold flex items-center gap-1.5">
+                          <Mic2 size={12} className="text-primary" />
+                          {structureAnalysis.instruments.slice(0, 2).join(', ')}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="space-y-2 pt-2">
+                      <span className="text-[10px] text-gray-500 uppercase font-mono flex items-center gap-1">
+                        <ListChecks size={12} />
+                        AI Producer Suggestions
+                      </span>
+                      <ul className="space-y-1.5">
+                        {structureAnalysis.suggestions.map((s, i) => (
+                          <li key={i} className="text-[11px] text-gray-300 leading-relaxed flex gap-2">
+                            <span className="text-primary mt-1">•</span>
+                            {s}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
               <button
                 onClick={handleProcess}
                 disabled={tracks.length === 0 || isProcessing}
@@ -455,8 +620,24 @@ function App() {
                     onDownload={handleDownload}
                     onPlayStateChange={setIsPlaying}
                     isProcessing={isProcessing}
+                    isUnlocked={isUnlocked}
+                    onPay={handlePayment}
                     trackTitle={generatedTitle || (tracks.length > 0 ? `${tracks[0].name} (${activeMode} mix)` : 'Custom Mix')}
                   />
+
+                  {dailyLimitReached && (
+                    <div className="bg-primary/10 border border-primary/30 rounded-lg p-3 text-center">
+                      <p className="text-xs text-primary font-bold mb-2">
+                        You used your 5 free songs for today
+                      </p>
+                      <button 
+                        onClick={handlePayment}
+                        className="text-xs bg-primary hover:bg-primary/90 text-white px-4 py-1.5 rounded-full font-bold transition-all"
+                      >
+                        Pay ₹5 & Download
+                      </button>
+                    </div>
+                  )}
 
                   <div className="pt-4 border-t border-white/10 space-y-2">
                     <button
@@ -587,50 +768,6 @@ function App() {
                       </div>
                       <div className="text-xs text-gray-500 text-center">
                         Settings automatically applied to panel.
-                      </div>
-                    </div>
-                  )}
-
-                  {structureAnalysis && (
-                    <div className="space-y-4">
-                      <div className="grid grid-cols-2 gap-4">
-                        <div className="bg-secondary p-3 rounded-lg">
-                          <p className="text-xs text-gray-500 uppercase">Key</p>
-                          <p className="text-white font-bold">{structureAnalysis.key}</p>
-                        </div>
-                        <div className="bg-secondary p-3 rounded-lg">
-                          <p className="text-xs text-gray-500 uppercase">BPM</p>
-                          <p className="text-white font-bold">{structureAnalysis.bpm}</p>
-                        </div>
-                        <div className="bg-secondary p-3 rounded-lg">
-                          <p className="text-xs text-gray-500 uppercase">Genre</p>
-                          <p className="text-white font-bold">{structureAnalysis.genre}</p>
-                        </div>
-                        <div className="bg-secondary p-3 rounded-lg">
-                          <p className="text-xs text-gray-500 uppercase">Mood</p>
-                          <p className="text-white font-bold">{structureAnalysis.mood}</p>
-                        </div>
-                      </div>
-
-                      <div className="bg-secondary p-4 rounded-xl">
-                        <p className="text-xs text-gray-500 uppercase mb-2">Dominant Instruments</p>
-                        <div className="flex flex-wrap gap-2">
-                          {structureAnalysis.instruments.map((inst, i) => (
-                            <span key={i} className="bg-bg text-white text-xs px-2 py-1 rounded-md border border-white/10">{inst}</span>
-                          ))}
-                        </div>
-                      </div>
-
-                      <div className="bg-secondary p-4 rounded-xl">
-                        <p className="text-xs text-gray-500 uppercase mb-2">Remix Suggestions</p>
-                        <ul className="space-y-2">
-                          {structureAnalysis.suggestions.map((sugg, i) => (
-                            <li key={i} className="flex items-start gap-2 text-sm text-gray-300">
-                              <span className="text-primary mt-1">•</span>
-                              {sugg}
-                            </li>
-                          ))}
-                        </ul>
                       </div>
                     </div>
                   )}
