@@ -22,7 +22,6 @@ import { InfoModal, InfoPage } from './components/InfoModal';
 interface UserProfile {
   uid: string;
   email?: string;
-  plan?: 'free' | 'pro' | 'studio';
 }
 
 function App() {
@@ -39,6 +38,11 @@ function App() {
     reverbSize: 2.5,
     panningSpeed: 8,
     crossfadeDuration: 5,
+    aiMastering: true,
+    masteringHighEndBoost: 1.5,
+    masteringLowEndTighten: -2.5,
+    masteringVocalPresence: 2.0,
+    masteringLimiterThreshold: -0.8,
   });
 
   const [isPlaying, setIsPlaying] = useState(false);
@@ -55,10 +59,6 @@ function App() {
   const [trendResult, setTrendResult] = useState<TrendRemixResponse | null>(null);
   const [structureAnalysis, setStructureAnalysis] = useState<SongStructureAnalysis | null>(null);
   const [showAnalysisModal, setShowAnalysisModal] = useState(false);
-  
-  const [currentMixId, setCurrentMixId] = useState<string | null>(null);
-  const [isUnlocked, setIsUnlocked] = useState(true);
-  const [dailyLimitReached, setDailyLimitReached] = useState(false);
 
   const { processAudio, isProcessing, processedBuffer, audioContext, decodeAudio } = useAudioProcessor();
   const analyserRef = useRef<AnalyserNode | null>(null);
@@ -78,9 +78,9 @@ function App() {
         if (data) {
           setUserProfile({ uid: user.id, ...data });
         } else {
-          const newProfile = { id: user.id, email: user.email, plan: 'free' };
+          const newProfile = { id: user.id, email: user.email };
           await supabase.from('users').insert([newProfile]);
-          setUserProfile({ uid: user.id, plan: 'free' });
+          setUserProfile({ uid: user.id });
         }
       } else {
         setUserProfile(null);
@@ -94,9 +94,9 @@ function App() {
         if (data) {
           setUserProfile({ uid: user.id, ...data });
         } else {
-          const newProfile = { id: user.id, email: user.email, plan: 'free' };
+          const newProfile = { id: user.id, email: user.email };
           await supabase.from('users').upsert([newProfile]);
-          setUserProfile({ uid: user.id, plan: 'free' });
+          setUserProfile({ uid: user.id });
         }
       } else {
         setUserProfile(null);
@@ -211,77 +211,52 @@ function App() {
     }
   };
 
+  const handleAITrendAnalysis = async () => {
+    if (tracks.length === 0) return;
+    setIsAnalyzingTrends(true);
+    try {
+      const result = await getTrendBasedRemixSettings(tracks.map(t => ({ name: t.name, genre: t.genre })));
+      if (result) {
+        setTrendResult(result);
+        setActiveMode(result.mode);
+        setSettings({
+          ...result.settings,
+          echoDelay: 0,
+          echoFeedback: 0,
+          bass: result.settings.bass ?? 0,
+          treble: result.settings.treble ?? 0,
+          aiMastering: result.settings.aiMastering ?? true,
+          masteringHighEndBoost: result.settings.masteringHighEndBoost ?? 1.5,
+          masteringLowEndTighten: result.settings.masteringLowEndTighten ?? -2.5,
+          masteringVocalPresence: result.settings.masteringVocalPresence ?? 2.0,
+          masteringLimiterThreshold: result.settings.masteringLimiterThreshold ?? -0.8,
+        });
+        alert(`AI Analysis Complete!\n\nMode selected: ${result.mode}\n\n${result.explanation}`);
+      } else {
+        alert('Failed to analyze trends. Please try again.');
+      }
+    } catch (error) {
+      console.error(error);
+      alert('Error analyzing trends');
+    } finally {
+      setIsAnalyzingTrends(false);
+    }
+  };
+
   const handleProcess = async () => {
     if (tracks.length === 0) return;
     
     try {
       // Process audio client-side
       await processAudio(tracks, activeMode, settings);
-      setIsUnlocked(true);
-      setDailyLimitReached(false);
     } catch (error) {
       console.error(error);
       alert('Processing failed');
     }
   };
 
-  const handlePayment = async () => {
-    if (!currentMixId) return;
-
-    try {
-      const orderRes = await fetch('/api/razorpay/order', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mixId: currentMixId })
-      });
-      const orderData = await orderRes.json();
-
-      const options = {
-        key: import.meta.env.VITE_RAZORPAY_KEY_ID || 'rzp_test_placeholder',
-        amount: orderData.amount,
-        currency: orderData.currency,
-        name: "AI DJ Mixer",
-        description: "Unlock AI DJ Mix Download",
-        order_id: orderData.id,
-        handler: async (response: any) => {
-          const verifyRes = await fetch('/api/razorpay/verify', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              ...response,
-              mixId: currentMixId
-            })
-          });
-          const verifyData = await verifyRes.json();
-          if (verifyData.success) {
-            setIsUnlocked(true);
-            setDailyLimitReached(false);
-            alert("Payment successful! You can now download your mix.");
-          }
-        },
-        prefill: {
-          email: userProfile?.email || "",
-        },
-        theme: {
-          color: "#7c3aed",
-        },
-      };
-
-      const rzp = new (window as any).Razorpay(options);
-      rzp.open();
-    } catch (error) {
-      console.error("Payment Error:", error);
-      alert("Failed to initiate payment.");
-    }
-  };
-
   const handleDownload = () => {
     if (!processedBuffer) return;
-    
-    if (!isUnlocked) {
-      handlePayment();
-      return;
-    }
 
     const wavBuffer = audioBufferToWav(processedBuffer);
     const blob = new Blob([wavBuffer], { type: 'audio/wav' });
@@ -341,7 +316,12 @@ function App() {
       echoDelay: 0, 
       echoFeedback: 0,
       bass: preset.settings.bass ?? 0,
-      treble: preset.settings.treble ?? 0
+      treble: preset.settings.treble ?? 0,
+      aiMastering: preset.settings.aiMastering ?? true,
+      masteringHighEndBoost: preset.settings.masteringHighEndBoost ?? 1.5,
+      masteringLowEndTighten: preset.settings.masteringLowEndTighten ?? -2.5,
+      masteringVocalPresence: preset.settings.masteringVocalPresence ?? 2.0,
+      masteringLimiterThreshold: preset.settings.masteringLimiterThreshold ?? -0.8,
     });
     alert(`Loaded settings for "${preset.name}". \nMode: ${preset.mode}\n\nNote: Original audio files cannot be restored automatically. Please upload tracks to apply these settings.`);
   };
@@ -428,6 +408,24 @@ function App() {
               <h3 className="text-xl font-display font-bold text-white mb-4">Actions</h3>
               
               <button
+                onClick={handleAITrendAnalysis}
+                disabled={tracks.length === 0 || isAnalyzingTrends}
+                className="w-full mb-4 bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed text-white py-3 rounded-lg font-bold shadow-[0_0_15px_rgba(168,85,247,0.4)] transition-all flex items-center justify-center space-x-2 text-sm sm:text-base"
+              >
+                {isAnalyzingTrends ? (
+                  <>
+                    <Loader2 className="animate-spin" size={18} />
+                    <span>ANALYZING...</span>
+                  </>
+                ) : (
+                  <>
+                    <BrainCircuit size={18} />
+                    <span>AI AUTO-MASTER & REMIX</span>
+                  </>
+                )}
+              </button>
+
+              <button
                 onClick={handleProcess}
                 disabled={tracks.length === 0 || isProcessing}
                 className="w-full mb-4 bg-primary hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed text-white py-4 rounded-lg font-bold shadow-[0_0_20px_rgba(124,58,237,0.4)] transition-all flex items-center justify-center space-x-2 text-sm sm:text-base"
@@ -451,24 +449,8 @@ function App() {
                     onDownload={handleDownload}
                     onPlayStateChange={setIsPlaying}
                     isProcessing={isProcessing}
-                    isUnlocked={isUnlocked}
-                    onPay={handlePayment}
                     trackTitle={generatedTitle || (tracks.length > 0 ? `${tracks[0].name} (${activeMode} mix)` : 'Custom Mix')}
                   />
-
-                  {dailyLimitReached && (
-                    <div className="bg-primary/10 border border-primary/30 rounded-lg p-3 text-center">
-                      <p className="text-xs text-primary font-bold mb-2">
-                        You used your 5 free songs for today
-                      </p>
-                      <button 
-                        onClick={handlePayment}
-                        className="text-xs bg-primary hover:bg-primary/90 text-white px-4 py-1.5 rounded-full font-bold transition-all"
-                      >
-                        Pay ₹5 & Download
-                      </button>
-                    </div>
-                  )}
 
                   <div className="pt-4 border-t border-white/10 space-y-2">
                     <button

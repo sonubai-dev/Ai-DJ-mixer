@@ -8,8 +8,6 @@ interface MusicPlayerProps {
   onDownload: () => void;
   onPlayStateChange: (isPlaying: boolean) => void;
   isProcessing?: boolean;
-  isUnlocked?: boolean;
-  onPay?: () => void;
   trackTitle?: string;
 }
 
@@ -20,8 +18,6 @@ export function MusicPlayer({
   onDownload, 
   onPlayStateChange, 
   isProcessing, 
-  isUnlocked = true,
-  onPay,
   trackTitle 
 }: MusicPlayerProps) {
   const [isPlaying, setIsPlaying] = useState(false);
@@ -219,15 +215,11 @@ export function MusicPlayer({
         <div className="flex justify-end w-1/3">
           <button
             onClick={onDownload}
-            className={`flex items-center space-x-2 px-4 py-2 rounded-lg transition-all text-sm font-sans font-bold tracking-wider ${
-              isUnlocked 
-                ? 'bg-white/5 hover:bg-white/10 border border-white/10 hover:border-white/20 text-white' 
-                : 'bg-primary/20 hover:bg-primary/30 border border-primary/30 text-primary'
-            }`}
+            className="flex items-center space-x-2 px-4 py-2 rounded-lg transition-all text-sm font-sans font-bold tracking-wider bg-white/5 hover:bg-white/10 border border-white/10 hover:border-white/20 text-white"
           >
             <Download size={16} />
             <span className="hidden sm:inline">
-              {isUnlocked ? 'SAVE WAV' : 'PAY ₹5 TO UNLOCK'}
+              SAVE WAV
             </span>
           </button>
         </div>

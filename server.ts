@@ -7,8 +7,6 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import Database from 'better-sqlite3';
-import Razorpay from 'razorpay';
-import crypto from 'crypto';
 import { createClient } from '@supabase/supabase-js';
 import dotenv from 'dotenv';
 
@@ -22,12 +20,6 @@ const PORT = 3000;
 
 app.use(cors());
 app.use(express.json());
-
-// Initialize Razorpay
-const razorpay = new Razorpay({
-  key_id: process.env.RAZORPAY_KEY_ID || 'rzp_test_placeholder',
-  key_secret: process.env.RAZORPAY_KEY_SECRET || 'placeholder_secret',
-});
 
 // Initialize Supabase Admin (using service role for server-side operations)
 const supabaseAdmin = createClient(
@@ -75,32 +67,6 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', playdl: true });
 });
 
-// Helper to check and reset daily limit
-async function checkDailyLimit(userId: string) {
-  const { data: profile, error } = await supabaseAdmin
-    .from('profiles')
-    .select('daily_count, last_reset')
-    .eq('id', userId)
-    .single();
-
-  if (error || !profile) return { canGenerate: true, count: 0 };
-
-  const lastReset = new Date(profile.last_reset);
-  const now = new Date();
-  const diffHours = (now.getTime() - lastReset.getTime()) / (1000 * 60 * 60);
-
-  if (diffHours >= 24) {
-    // Reset counter
-    await supabaseAdmin
-      .from('profiles')
-      .update({ daily_count: 0, last_reset: now.toISOString() })
-      .eq('id', userId);
-    return { canGenerate: true, count: 0 };
-  }
-
-  return { canGenerate: profile.daily_count < 5, count: profile.daily_count };
-}
-
 app.post('/api/extract-youtube', async (req, res) => {
   const { url, userId, title: bodyTitle } = req.body;
 
@@ -110,16 +76,18 @@ app.post('/api/extract-youtube', async (req, res) => {
   }
 
   try {
-    let unlocked = true;
     if (userId) {
-      const { canGenerate, count } = await checkDailyLimit(userId);
-      if (!canGenerate) {
-        unlocked = false;
-      } else {
-        // Increment count
+      // Increment count (optional, just for tracking now)
+      const { data: profile } = await supabaseAdmin
+        .from('profiles')
+        .select('daily_count')
+        .eq('id', userId)
+        .single();
+        
+      if (profile) {
         await supabaseAdmin
           .from('profiles')
-          .update({ daily_count: count + 1 })
+          .update({ daily_count: profile.daily_count + 1 })
           .eq('id', userId);
       }
     }
@@ -137,7 +105,6 @@ app.post('/api/extract-youtube', async (req, res) => {
         userId: userId,
         name: title,
         url: url,
-        unlocked: unlocked,
         createdAt: new Date().toISOString(),
         mode: 'AI Mix', // Default mode for tracking
         settings: {},
@@ -151,60 +118,12 @@ app.post('/api/extract-youtube', async (req, res) => {
     res.json({ 
       success: true, 
       mixId: mix.id, 
-      unlocked: unlocked,
       title: title
     });
 
   } catch (error) {
     console.error('Generation error:', error);
     res.status(500).json({ error: 'Failed to process audio' });
-  }
-});
-
-// Razorpay: Create Order
-app.post('/api/razorpay/order', async (req, res) => {
-  const { mixId } = req.body;
-  
-  try {
-    const options = {
-      amount: 500, // ₹5 in paise
-      currency: 'INR',
-      receipt: `receipt_${mixId}`,
-    };
-
-    const order = await razorpay.orders.create(options);
-    res.json(order);
-  } catch (error) {
-    console.error('Razorpay Order Error:', error);
-    res.status(500).json({ error: 'Failed to create payment order' });
-  }
-});
-
-// Razorpay: Verify Payment
-app.post('/api/razorpay/verify', async (req, res) => {
-  const { razorpay_order_id, razorpay_payment_id, razorpay_signature, mixId } = req.body;
-
-  const sign = razorpay_order_id + "|" + razorpay_payment_id;
-  const expectedSign = crypto
-    .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET || 'placeholder_secret')
-    .update(sign.toString())
-    .digest("hex");
-
-  if (razorpay_signature === expectedSign) {
-    // Payment successful: Unlock the mix
-    try {
-      await supabaseAdmin
-        .from('mixes')
-        .update({ unlocked: true })
-        .eq('id', mixId);
-
-      res.json({ success: true, message: "Payment verified successfully" });
-    } catch (error) {
-      console.error('Unlock Error:', error);
-      res.status(500).json({ error: 'Payment verified but failed to unlock mix' });
-    }
-  } else {
-    res.status(400).json({ error: "Invalid signature" });
   }
 });
 
@@ -220,7 +139,6 @@ app.get('/api/download/:mixId', async (req, res) => {
       .single();
 
     if (error || !mix) return res.status(404).json({ error: 'Mix not found' });
-    if (!mix.unlocked) return res.status(403).json({ error: 'Mix is locked. Please pay to download.' });
 
     const stream = await play.stream(mix.url);
     const safeTitle = mix.name.replace(/[^a-z0-9]/gi, '_');

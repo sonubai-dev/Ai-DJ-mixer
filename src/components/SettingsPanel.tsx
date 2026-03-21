@@ -1,5 +1,6 @@
 import { RemixMode, RemixSettings, AudioTrack } from '../types';
 import { REMIX_MODES } from '../constants';
+import { Sparkles } from 'lucide-react';
 
 interface SettingsPanelProps {
   mode: RemixMode;
@@ -26,6 +27,93 @@ export function SettingsPanel({ mode, settings, onSettingsChange, tracks = [] }:
         <span className="w-1.5 h-8 bg-gradient-to-b from-primary to-accent mr-4 rounded-full shadow-[0_0_10px_rgba(124,58,237,0.5)]"></span>
         <span className="tracking-wider">{REMIX_MODES.find(m => m.id === mode)?.label} Settings</span>
       </h3>
+
+      {/* AI Mastering Toggle */}
+      <div className="mb-8 bg-black/40 border border-primary/20 rounded-xl p-4 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center text-primary">
+            <Sparkles size={20} />
+          </div>
+          <div>
+            <h4 className="text-white font-bold font-display tracking-wide">AI Mastering</h4>
+            <p className="text-xs text-gray-400">Clean & Sharp professional polish</p>
+          </div>
+        </div>
+        <label className="relative inline-flex items-center cursor-pointer">
+          <input 
+            type="checkbox" 
+            className="sr-only peer"
+            checked={settings.aiMastering !== false}
+            onChange={(e) => handleChange('aiMastering', e.target.checked as any)}
+          />
+          <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
+        </label>
+      </div>
+
+      {settings.aiMastering !== false && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8 p-6 bg-primary/5 border border-primary/10 rounded-xl">
+          <div className="space-y-4 group">
+            <div className="flex justify-between items-center">
+              <label className="text-gray-200 text-sm font-sans font-bold tracking-widest group-hover:text-primary transition-colors">High-End Clarity</label>
+              <span className="text-primary font-mono font-bold text-xs bg-primary/10 px-2 py-1 rounded border border-primary/20">{settings.masteringHighEndBoost ?? 1.5}dB</span>
+            </div>
+            <input
+              type="range"
+              min="0"
+              max="5"
+              step="0.1"
+              value={settings.masteringHighEndBoost ?? 1.5}
+              onChange={(e) => handleChange('masteringHighEndBoost', Number(e.target.value))}
+              className="w-full h-2 bg-bg rounded-lg appearance-none cursor-pointer accent-primary hover:accent-primary/80 transition-all"
+            />
+          </div>
+          <div className="space-y-4 group">
+            <div className="flex justify-between items-center">
+              <label className="text-gray-200 text-sm font-sans font-bold tracking-widest group-hover:text-primary transition-colors">Mud Removal</label>
+              <span className="text-primary font-mono font-bold text-xs bg-primary/10 px-2 py-1 rounded border border-primary/20">{settings.masteringLowEndTighten ?? -2.5}dB</span>
+            </div>
+            <input
+              type="range"
+              min="-5"
+              max="0"
+              step="0.1"
+              value={settings.masteringLowEndTighten ?? -2.5}
+              onChange={(e) => handleChange('masteringLowEndTighten', Number(e.target.value))}
+              className="w-full h-2 bg-bg rounded-lg appearance-none cursor-pointer accent-primary hover:accent-primary/80 transition-all"
+            />
+          </div>
+          <div className="space-y-4 group">
+            <div className="flex justify-between items-center">
+              <label className="text-gray-200 text-sm font-sans font-bold tracking-widest group-hover:text-primary transition-colors">Vocal Presence</label>
+              <span className="text-primary font-mono font-bold text-xs bg-primary/10 px-2 py-1 rounded border border-primary/20">{settings.masteringVocalPresence ?? 2.0}dB</span>
+            </div>
+            <input
+              type="range"
+              min="0"
+              max="5"
+              step="0.1"
+              value={settings.masteringVocalPresence ?? 2.0}
+              onChange={(e) => handleChange('masteringVocalPresence', Number(e.target.value))}
+              className="w-full h-2 bg-bg rounded-lg appearance-none cursor-pointer accent-primary hover:accent-primary/80 transition-all"
+            />
+          </div>
+          <div className="space-y-4 group">
+            <div className="flex justify-between items-center">
+              <label className="text-gray-200 text-sm font-sans font-bold tracking-widest group-hover:text-primary transition-colors">Loudness (Limiter)</label>
+              <span className="text-primary font-mono font-bold text-xs bg-primary/10 px-2 py-1 rounded border border-primary/20">{settings.masteringLimiterThreshold ?? -0.8}dB</span>
+            </div>
+            <input
+              type="range"
+              min="-3"
+              max="0"
+              step="0.1"
+              value={settings.masteringLimiterThreshold ?? -0.8}
+              onChange={(e) => handleChange('masteringLimiterThreshold', Number(e.target.value))}
+              className="w-full h-2 bg-bg rounded-lg appearance-none cursor-pointer accent-primary hover:accent-primary/80 transition-all"
+            />
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
         {isDJ && (

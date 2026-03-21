@@ -24,36 +24,18 @@ export interface SongStructureAnalysis {
 }
 
 export async function getTrendBasedRemixSettings(
-  tracks: {name: string, genre?: string}[], 
-  plan: 'free' | 'pro' | 'studio' = 'free'
+  tracks: {name: string, genre?: string}[]
 ): Promise<TrendRemixResponse | null> {
   if (!apiKey) return null;
 
   try {
     const trackList = tracks.map(t => `"${t.name}" (${t.genre || 'Unknown'})`).join(', ');
     
-    // Tailor the prompt based on the plan
-    let planContext = "";
-    if (plan === 'free') {
-      planContext = "Provide a standard, popular remix style suitable for general audiences.";
-    } else if (plan === 'pro') {
-      planContext = "Provide a high-quality, trending remix style with detailed parameter tuning for professional sound.";
-    } else if (plan === 'studio') {
-      planContext = "Provide an elite, studio-grade remix configuration. Analyze deep cuts and niche viral trends to create a unique, chart-topping sound. Maximize audio fidelity in your suggestions.";
-    }
-
     const prompt = `
-      You are a world-class Music Producer and DJ specializing in Indian regional music trends (Bhojpuri, Punjabi, Haryanvi, South Indian, etc.) and global viral sounds.
+      You are a world-class Music Producer. Analyze: ${trackList}.
+      Identify current viral trends and determine the best remix formula for a sharp, clear, and punchy sound.
       
-      Analyze the following song(s): ${trackList}.
-      
-      Your Task:
-      1. Deeply analyze the metadata, genre, and likely sub-genre of these tracks.
-      2. Identify current viral trends on Instagram Reels, YouTube Shorts, and Spotify Charts specifically for these genres in India.
-      3. Determine the "winning formula" for a remix that would go viral right now (e.g., "Bhojpuri Lofi Flip", "Punjabi Drill Remix", "Haryanvi Hard Bass", "Slowed + Reverb with 8D spatial audio").
-      4. ${planContext}
-      
-      Return a JSON object with this structure:
+      Return a JSON object:
       {
         "mode": "dj" | "slowed" | "3d" | "8d" | "16d" | "3d-dj" | "3d-slowed" | "8d-dj" | "8d-slowed" | "16d-dj" | "16d-slowed",
         "settings": {
@@ -64,10 +46,15 @@ export async function getTrendBasedRemixSettings(
           "reverbWet": number (0-100),
           "reverbSize": number (0-10),
           "panningSpeed": number (1-20),
-          "crossfadeDuration": number (0-12)
+          "crossfadeDuration": number (0-12),
+          "aiMastering": true,
+          "masteringHighEndBoost": number (1.0 to 4.0, e.g., 2.5 for sharp clarity),
+          "masteringLowEndTighten": number (-5 to -1, e.g., -3.0 to remove mud),
+          "masteringVocalPresence": number (1.0 to 4.0, e.g., 2.5 for vocal pop),
+          "masteringLimiterThreshold": number (-2 to 0, e.g., -0.5 for loudness)
         },
-        "explanation": "A comprehensive, professional explanation. Mention specific regional trends, why this mode fits the song's energy, and how the technical settings (like bass boost or reverb) enhance the specific cultural vibe of the track.",
-        "viralScore": number (0-100, estimated viral potential based on current Indian social media data)
+        "explanation": "Brief 2-sentence explanation of why these settings make it sound sharp and viral.",
+        "viralScore": number (0-100)
       }
       Do not include markdown formatting. Just the JSON string.
     `;
@@ -90,18 +77,17 @@ export async function analyzeSongStructure(filename: string): Promise<SongStruct
 
   try {
     const prompt = `
-      Analyze the song structure and cultural context for: "${filename}".
-      
-      Provide a highly detailed analysis in a JSON object:
+      Analyze song: "${filename}".
+      Return JSON:
       {
-        "bpm": number (estimated),
-        "key": string (e.g., "C Minor"),
-        "genre": string (be specific, e.g., "Bhojpuri Pop", "Punjabi Hip-Hop"),
+        "bpm": number,
+        "key": string,
+        "genre": string,
         "mood": string,
-        "instruments": string[] (list of dominant instruments, including traditional ones like Dhol, Tumbi, Harmonium if applicable),
-        "suggestions": string[] (4-5 detailed bullet points on how to remix this track specifically for the Indian market, considering current viral styles)
+        "instruments": string[],
+        "suggestions": string[] (3 short bullet points for a sharp, clear remix)
       }
-      Do not include markdown.
+      No markdown.
     `;
 
     const response = await ai.models.generateContent({

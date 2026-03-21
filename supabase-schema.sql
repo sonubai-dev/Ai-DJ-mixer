@@ -25,7 +25,6 @@ CREATE TABLE IF NOT EXISTS mixes (
   mode TEXT,
   settings JSONB,
   tracks JSONB,
-  unlocked BOOLEAN DEFAULT FALSE,
   "createdAt" TIMESTAMPTZ DEFAULT NOW()
 );
 

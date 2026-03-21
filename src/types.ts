@@ -27,6 +27,13 @@ export interface RemixSettings {
 
   // Mashup Mode
   crossfadeDuration: number; // seconds
+
+  // AI Mastering (Clean & Sharp)
+  aiMastering?: boolean;
+  masteringHighEndBoost?: number; // dB
+  masteringLowEndTighten?: number; // dB
+  masteringVocalPresence?: number; // dB
+  masteringLimiterThreshold?: number; // dB
 }
 
 export type RemixMode = 

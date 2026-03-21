@@ -6,6 +6,7 @@ export function useAudioProcessor() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [processedBuffer, setProcessedBuffer] = useState<AudioBuffer | null>(null);
   const irCache = useRef<AudioBuffer | null>(null);
+  const generatedIRCache = useRef<Map<number, AudioBuffer>>(new Map());
 
   useEffect(() => {
     const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
@@ -89,41 +90,64 @@ export function useAudioProcessor() {
         source.playbackRate.value = slowFactor;
       }
 
-      // --- MASTERING CHAIN (Professional Polish) ---
-      const highEndBoost = offlineCtx.createBiquadFilter();
-      highEndBoost.type = 'peaking';
-      highEndBoost.frequency.value = 10000; // 8k-12k range
-      highEndBoost.gain.value = 1.5; // Gentle boost
-      highEndBoost.Q.value = 0.7;
+      // --- MASTERING CHAIN (Professional Polish & Efficiency) ---
+      const useAIMastering = settings.aiMastering !== false; // Default to true if undefined
+      const highEndBoostVal = settings.masteringHighEndBoost ?? 1.5;
+      const lowEndTightenVal = settings.masteringLowEndTighten ?? -2.5;
+      const vocalPresenceVal = settings.masteringVocalPresence ?? 2.0;
+      const limiterThresholdVal = settings.masteringLimiterThreshold ?? -0.8;
 
+      // 1. Subsonic Rumble Filter (Saves headroom, improves clarity)
+      const subsonicFilter = offlineCtx.createBiquadFilter();
+      subsonicFilter.type = 'highpass';
+      subsonicFilter.frequency.value = 30; // Cut below 30Hz
+      subsonicFilter.Q.value = 0.7;
+
+      // 2. High-End "Air" Boost (Sharper, clearer highs)
+      const highEndBoost = offlineCtx.createBiquadFilter();
+      highEndBoost.type = 'highshelf'; // Changed to highshelf for more air
+      highEndBoost.frequency.value = 12000; // 12k range
+      highEndBoost.gain.value = useAIMastering ? highEndBoostVal : 0;
+
+      // 3. Mud Removal
       const lowEndTighten = offlineCtx.createBiquadFilter();
       lowEndTighten.type = 'peaking';
-      lowEndTighten.frequency.value = 275; // 200-350Hz range
-      lowEndTighten.gain.value = -2.5; // Reduce muddy frequencies
+      lowEndTighten.frequency.value = 250; // 250Hz range
+      lowEndTighten.gain.value = useAIMastering ? lowEndTightenVal : 0;
       lowEndTighten.Q.value = 1.2;
 
+      // 4. Vocal/Lead Presence
       const vocalPresence = offlineCtx.createBiquadFilter();
       vocalPresence.type = 'peaking';
-      vocalPresence.frequency.value = 4000; // 3k-5k range
-      vocalPresence.gain.value = 2.0; // Smooth enhancement
+      vocalPresence.frequency.value = 4500; // 4.5k range for sharper presence
+      vocalPresence.gain.value = useAIMastering ? vocalPresenceVal : 0;
       vocalPresence.Q.value = 1.0;
 
+      // 5. Fast, Transparent Limiter
       const limiter = offlineCtx.createDynamicsCompressor();
-      limiter.threshold.value = -0.8; // Target -0.8dB peak
+      limiter.threshold.value = useAIMastering ? limiterThresholdVal : -0.1;
       limiter.knee.value = 0;
-      limiter.ratio.value = 20;
-      limiter.attack.value = 0.003;
-      limiter.release.value = 0.1;
+      limiter.ratio.value = useAIMastering ? 20 : 1;
+      limiter.attack.value = 0.001; // Faster attack for sharper transients
+      limiter.release.value = 0.05; // Faster release for more perceived loudness
 
       const masterGain = offlineCtx.createGain();
       masterGain.gain.value = 1.0; 
 
-      // Connect Mastering Chain
-      highEndBoost.connect(lowEndTighten);
-      lowEndTighten.connect(vocalPresence);
-      vocalPresence.connect(limiter);
-      limiter.connect(masterGain);
+      // Connect Mastering Chain (Only connect active nodes for power efficiency)
+      if (useAIMastering) {
+        subsonicFilter.connect(lowEndTighten);
+        lowEndTighten.connect(vocalPresence);
+        vocalPresence.connect(highEndBoost);
+        highEndBoost.connect(limiter);
+        limiter.connect(masterGain);
+      } else {
+        subsonicFilter.connect(masterGain); // Still use subsonic for basic clarity
+      }
       masterGain.connect(offlineCtx.destination);
+
+      // The entry point to the mastering chain
+      const masteringEntry = subsonicFilter;
 
       // Track the end of the signal chain
       let currentChainNode: AudioNode = source;
@@ -196,7 +220,7 @@ export function useAudioProcessor() {
         currentChainNode.connect(delay);
         
         // Echo return to Mastering Chain (Parallel)
-        delay.connect(highEndBoost);
+        delay.connect(masteringEntry);
       }
 
       // --- REVERB (Send) ---
@@ -208,42 +232,49 @@ export function useAudioProcessor() {
 
         let impulse: AudioBuffer;
         
-        // Try to use a pre-recorded high-quality plate impulse response for a natural sound
-        try {
-          if (!irCache.current) {
-            const irUrl = 'https://raw.githubusercontent.com/mdn/webaudio-examples/master/voice-change-o-matic/audio/plate.wav';
-            const irRes = await fetch(irUrl);
-            const irAB = await irRes.arrayBuffer();
-            irCache.current = await audioContext.decodeAudioData(irAB);
-          }
-          
-          const baseIR = irCache.current!;
-          const rate = offlineCtx.sampleRate;
-          
-          const length = Math.min(baseIR.length, Math.floor(reverbSize * rate));
-          impulse = offlineCtx.createBuffer(2, length, rate);
-          
-          for (let channel = 0; channel < 2; channel++) {
-            const channelData = baseIR.getChannelData(channel % baseIR.numberOfChannels);
-            const targetData = impulse.getChannelData(channel);
-            for (let i = 0; i < length; i++) {
-              const t = i / rate;
-              const decayEnvelope = Math.exp(-6.908 * t / reverbSize);
-              targetData[i] = channelData[i] * decayEnvelope;
+        // Use cached generated IR for massive power efficiency boost
+        if (generatedIRCache.current.has(reverbSize)) {
+          impulse = generatedIRCache.current.get(reverbSize)!;
+        } else {
+          // Try to use a pre-recorded high-quality plate impulse response for a natural sound
+          try {
+            if (!irCache.current) {
+              const irUrl = 'https://raw.githubusercontent.com/mdn/webaudio-examples/master/voice-change-o-matic/audio/plate.wav';
+              const irRes = await fetch(irUrl);
+              const irAB = await irRes.arrayBuffer();
+              irCache.current = await audioContext.decodeAudioData(irAB);
+            }
+            
+            const baseIR = irCache.current!;
+            const rate = offlineCtx.sampleRate;
+            
+            const length = Math.min(baseIR.length, Math.floor(reverbSize * rate));
+            impulse = offlineCtx.createBuffer(2, length, rate);
+            
+            for (let channel = 0; channel < 2; channel++) {
+              const channelData = baseIR.getChannelData(channel % baseIR.numberOfChannels);
+              const targetData = impulse.getChannelData(channel);
+              for (let i = 0; i < length; i++) {
+                const t = i / rate;
+                const decayEnvelope = Math.exp(-6.908 * t / reverbSize);
+                targetData[i] = channelData[i] * decayEnvelope;
+              }
+            }
+          } catch (e) {
+            const rate = offlineCtx.sampleRate;
+            const length = Math.floor(reverbSize * rate);
+            impulse = offlineCtx.createBuffer(2, length, rate);
+            for (let channel = 0; channel < 2; channel++) {
+              const data = impulse.getChannelData(channel);
+              for (let i = 0; i < length; i++) {
+                const t = i / rate;
+                const power = Math.exp(-6.908 * t / reverbSize);
+                data[i] = (Math.random() * 2 - 1) * power;
+              }
             }
           }
-        } catch (e) {
-          const rate = offlineCtx.sampleRate;
-          const length = Math.floor(reverbSize * rate);
-          impulse = offlineCtx.createBuffer(2, length, rate);
-          for (let channel = 0; channel < 2; channel++) {
-            const data = impulse.getChannelData(channel);
-            for (let i = 0; i < length; i++) {
-              const t = i / rate;
-              const power = Math.exp(-6.908 * t / reverbSize);
-              data[i] = (Math.random() * 2 - 1) * power;
-            }
-          }
+          // Cache it
+          generatedIRCache.current.set(reverbSize, impulse);
         }
         
         convolver.buffer = impulse;
@@ -265,12 +296,12 @@ export function useAudioProcessor() {
         reverbHP.connect(reverbLP);
         reverbLP.connect(convolver);
         convolver.connect(wetGain);
-        wetGain.connect(highEndBoost);
+        wetGain.connect(masteringEntry);
       }
 
       // Final connection to mastering chain if not already connected via effects
       if (!isSpatial) {
-        currentChainNode.connect(highEndBoost);
+        currentChainNode.connect(masteringEntry);
       }
 
       // --- SPATIAL PANNER (Insert) ---
@@ -282,7 +313,9 @@ export function useAudioProcessor() {
         const speed = settings.panningSpeed || 8; // seconds per cycle
         const frequency = 1 / speed;
         
-        const sampleCount = Math.ceil(totalTime * 100);
+        // Optimize panning calculation (less samples needed for smooth panning)
+        const sampleRate = 20; // 20 updates per second is plenty smooth for panning
+        const sampleCount = Math.ceil(totalTime * sampleRate);
         const panValues = new Float32Array(sampleCount);
         
         for (let i = 0; i < sampleCount; i++) {
@@ -300,7 +333,7 @@ export function useAudioProcessor() {
         panner.pan.setValueCurveAtTime(panValues, 0, totalTime);
         
         currentChainNode.connect(panner);
-        panner.connect(highEndBoost); // Connect to mastering chain
+        panner.connect(masteringEntry); // Connect to mastering chain
       }
 
       source.start(0);

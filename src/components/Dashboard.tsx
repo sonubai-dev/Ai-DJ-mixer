@@ -22,7 +22,6 @@ interface UserProfile {
   displayName?: string;
   photoURL?: string;
   artistName?: string;
-  plan?: 'free' | 'pro' | 'studio';
   createdAt?: any;
 }
 
