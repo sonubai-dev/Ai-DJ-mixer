@@ -211,85 +211,14 @@ function App() {
     }
   };
 
-  const handleAutoTrendMix = async () => {
-    if (tracks.length === 0) {
-      alert("Please upload a track first.");
-      return;
-    }
-    
-    setIsAnalyzingTrends(true);
-    setTrendResult(null);
-    setShowAnalysisModal(true);
-    
-    try {
-      const trackData = tracks.map(t => ({ name: t.name, genre: t.genre }));
-      const plan = userProfile?.plan || 'free';
-      const result = await getTrendBasedRemixSettings(trackData, plan);
-      
-      if (result) {
-        setActiveMode(result.mode);
-        // Ensure echo settings remain 0 as requested, and provide defaults for new EQ settings
-        setSettings({ 
-          ...result.settings, 
-          echoDelay: 0, 
-          echoFeedback: 0,
-          bass: result.settings.bass ?? 0,
-          treble: result.settings.treble ?? 0
-        });
-        setTrendResult(result);
-      } else {
-        alert("Could not analyze trends for this track.");
-        setShowAnalysisModal(false);
-      }
-    } catch (e) {
-      console.error(e);
-      alert("Error analyzing trends.");
-      setShowAnalysisModal(false);
-    } finally {
-      setIsAnalyzingTrends(false);
-    }
-  };
-
-  const handleDeepAnalysis = async () => {
-    if (tracks.length === 0) return;
-    setIsAnalyzingStructure(true);
-    setStructureAnalysis(null);
-
-    try {
-      const result = await analyzeSongStructure(tracks[0].name);
-      setStructureAnalysis(result);
-    } catch (e) {
-      console.error(e);
-      alert("Analysis failed.");
-    } finally {
-      setIsAnalyzingStructure(false);
-    }
-  };
-
   const handleProcess = async () => {
     if (tracks.length === 0) return;
     
     try {
-      // 1. Check limit and create mix entry on server
-      const response = await fetch('/api/extract-youtube', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          url: tracks[0].file instanceof File ? 'local_upload' : 'youtube_url', // Placeholder for tracking
-          userId: userProfile?.uid,
-          title: tracks[0].name
-        })
-      });
-
-      const data = await response.json();
-      if (data.success) {
-        setCurrentMixId(data.mixId);
-        setIsUnlocked(data.unlocked);
-        setDailyLimitReached(!data.unlocked);
-      }
-
-      // 2. Process audio client-side regardless (so they can hear it)
+      // Process audio client-side
       await processAudio(tracks, activeMode, settings);
+      setIsUnlocked(true);
+      setDailyLimitReached(false);
     } catch (error) {
       console.error(error);
       alert('Processing failed');
@@ -498,108 +427,10 @@ function App() {
             <div className="bg-secondary border border-white/10 rounded-xl p-6">
               <h3 className="text-xl font-display font-bold text-white mb-4">Actions</h3>
               
-              <div className="grid grid-cols-2 gap-3 mb-4">
-                <button
-                  onClick={handleAutoTrendMix}
-                  disabled={tracks.length === 0 || isAnalyzingTrends || isProcessing}
-                  className="bg-gradient-to-r from-primary to-accent hover:from-primary/90 hover:to-accent/90 disabled:opacity-50 disabled:cursor-not-allowed text-white py-3 rounded-lg font-medium shadow-[0_0_15px_rgba(124,58,237,0.4)] transition-all flex items-center justify-center space-x-2 text-xs sm:text-sm"
-                >
-                  {isAnalyzingTrends ? (
-                    <Loader2 className="animate-spin" size={16} />
-                  ) : (
-                    <Sparkles size={16} />
-                  )}
-                  <span>AUTO TREND</span>
-                </button>
-
-                <button
-                  onClick={handleDeepAnalysis}
-                  disabled={tracks.length === 0 || isAnalyzingStructure}
-                  className="bg-white/5 hover:bg-white/10 border border-white/10 text-white py-3 rounded-lg font-medium transition-all flex items-center justify-center space-x-2 text-xs sm:text-sm"
-                >
-                  {isAnalyzingStructure ? (
-                    <Loader2 className="animate-spin" size={16} />
-                  ) : (
-                    <BrainCircuit size={16} />
-                  )}
-                  <span>DEEP SCAN</span>
-                </button>
-              </div>
-
-              <AnimatePresence>
-                {structureAnalysis && (
-                  <motion.div
-                    initial={{ opacity: 0, height: 0, marginBottom: 0 }}
-                    animate={{ opacity: 1, height: 'auto', marginBottom: 24 }}
-                    exit={{ opacity: 0, height: 0, marginBottom: 0 }}
-                    className="bg-white/5 border border-white/10 rounded-xl p-5 space-y-4 overflow-hidden"
-                  >
-                    <div className="flex items-center justify-between border-b border-white/10 pb-3">
-                      <h4 className="text-sm font-display font-bold text-accent flex items-center gap-2 uppercase tracking-widest">
-                        <BrainCircuit size={16} />
-                        Deep Scan Results
-                      </h4>
-                      <button 
-                        onClick={() => setStructureAnalysis(null)}
-                        className="text-gray-500 hover:text-white transition-colors"
-                      >
-                        <X size={14} />
-                      </button>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-1">
-                        <span className="text-[10px] text-gray-500 uppercase font-mono">Genre</span>
-                        <p className="text-xs text-white font-bold flex items-center gap-1.5">
-                          <Music size={12} className="text-primary" />
-                          {structureAnalysis.genre}
-                        </p>
-                      </div>
-                      <div className="space-y-1">
-                        <span className="text-[10px] text-gray-500 uppercase font-mono">Key & BPM</span>
-                        <p className="text-xs text-white font-bold flex items-center gap-1.5">
-                          <Activity size={12} className="text-primary" />
-                          {structureAnalysis.key} • {structureAnalysis.bpm} BPM
-                        </p>
-                      </div>
-                      <div className="space-y-1">
-                        <span className="text-[10px] text-gray-500 uppercase font-mono">Mood</span>
-                        <p className="text-xs text-white font-bold flex items-center gap-1.5">
-                          <Sparkles size={12} className="text-primary" />
-                          {structureAnalysis.mood}
-                        </p>
-                      </div>
-                      <div className="space-y-1">
-                        <span className="text-[10px] text-gray-500 uppercase font-mono">Instruments</span>
-                        <p className="text-xs text-white font-bold flex items-center gap-1.5">
-                          <Mic2 size={12} className="text-primary" />
-                          {structureAnalysis.instruments.slice(0, 2).join(', ')}
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="space-y-2 pt-2">
-                      <span className="text-[10px] text-gray-500 uppercase font-mono flex items-center gap-1">
-                        <ListChecks size={12} />
-                        AI Producer Suggestions
-                      </span>
-                      <ul className="space-y-1.5">
-                        {structureAnalysis.suggestions.map((s, i) => (
-                          <li key={i} className="text-[11px] text-gray-300 leading-relaxed flex gap-2">
-                            <span className="text-primary mt-1">•</span>
-                            {s}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-
               <button
                 onClick={handleProcess}
                 disabled={tracks.length === 0 || isProcessing}
-                className="w-full mb-4 bg-primary hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed text-white py-4 rounded-lg font-bold shadow-[0_0_20px_rgba(124,58,237,0.4)] transition-all flex items-center justify-center space-x-2"
+                className="w-full mb-4 bg-primary hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed text-white py-4 rounded-lg font-bold shadow-[0_0_20px_rgba(124,58,237,0.4)] transition-all flex items-center justify-center space-x-2 text-sm sm:text-base"
               >
                 {isProcessing ? (
                   <>
